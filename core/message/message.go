@@ -43,6 +43,13 @@ func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
 			return nil, err
 		}
 		dw.Write(payload)
+	} else { /*if there is no payloadPacker we will write empty (default) data. with that writing, we will have extra one byte(x\80) in payload field*/
+		payload, err := encodePayload(map[string]interface{})
+		if err != nil {
+			dw.Flush()
+			return nil, err
+		}
+		dw.Write(payload)
 	}
 	// pack payload //
 
@@ -54,10 +61,6 @@ func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
 	client.CombinedSequenceNumberOut.Increment()
 	return data.Bytes(), nil
 }
-
-// func Unpack(client *core.Client, data []byte) []byte {
-
-// }
 
 func encodePayload(payload map[string]interface{}) ([]byte, error) {
 	b := new(bytes.Buffer)
