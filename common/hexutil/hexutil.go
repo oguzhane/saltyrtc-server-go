@@ -2,8 +2,9 @@ package hexutil
 
 import (
 	"encoding/hex"
-	"fmt"
 	"errors"
+	"fmt"
+
 	"github.com/oguzhane/saltyrtc-server-go/common"
 )
 
@@ -47,7 +48,7 @@ func HexStringToBytes(s string) ([]byte, error) {
 
 func HexStringToBytes32(s string) (*[32]byte, error) {
 	bytes, err := hex.DecodeString(s)
-	if(err != nil || len(bytes) > 32){
+	if err != nil || len(bytes) > 32 {
 		return nil, err
 	}
 	if len(bytes) != 32 {

@@ -21,8 +21,8 @@ const (
 )
 
 const (
-	RelayTimeout uint32 = 30
-	KeepAliveIntervalMin uint32 = 1
+	RelayTimeout             uint32 = 30
+	KeepAliveIntervalMin     uint32 = 1
 	KeepAliveIntervalDefault uint32 = 3600
-	KeepAliveTimeout uint32 = 30
+	KeepAliveTimeout         uint32 = 30
 )

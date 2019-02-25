@@ -1,11 +1,9 @@
 package randutil
 
-
 import (
 	"crypto/rand"
 	"encoding/binary"
 )
-
 
 func RandUint16() (uint16, error) {
 	b := make([]byte, 2)
@@ -33,7 +31,6 @@ func RandUint64() (uint64, error) {
 	}
 	return binary.BigEndian.Uint64(b), nil
 }
-
 
 func RandBytes(bytesSize int) ([]byte, error) {
 	b := make([]byte, bytesSize)

@@ -8,7 +8,6 @@ var (
 	ErrOverflowSentinel = errors.New("OverflowSentinel")
 )
 
-
 type SlotsFullError struct {
 	msg string
 }
@@ -22,7 +21,6 @@ func NewSlotsFullError(message string) *SlotsFullError {
 func (e *SlotsFullError) Error() string {
 	return e.msg
 }
-
 
 type ValueError struct {
 	msg string
@@ -38,7 +36,6 @@ func (e *ValueError) Error() string {
 	return e.msg
 }
 
-
 type PathError struct {
 	msg string
 }
@@ -52,7 +49,6 @@ func NewPathError(message string) *PathError {
 func (e *PathError) Error() string {
 	return e.msg
 }
-
 
 type MessageFlowError struct {
 	msg string

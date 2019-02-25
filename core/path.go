@@ -63,7 +63,7 @@ func (p *Path) AddResponder(responder *Client) (common.AddressType, error) {
 // RemoveClientByID removes client from slots by id
 func (p *Path) RemoveClientByID(id common.AddressType) (*Client, error) {
 	client, prs := p.slots[id]
-	
+
 	if !prs {
 		return nil, common.NewValueError(fmt.Sprintf("Invalid slot id:0x%x", id))
 	}

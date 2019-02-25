@@ -103,7 +103,7 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 		// We do not want to spawn a new goroutine to read single message.
 		// But we want to reuse previously spawned goroutine.
 		s.ScheduleJobToQueue(gopool.NewTask(func() {
-			if /*err := user.Receive();*/ err != nil {
+			if err != nil {
 				// When receive failed, we can only disconnect broken
 				// connection and stop to receive events about it.
 				poller.Stop(desc)

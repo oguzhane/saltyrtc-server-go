@@ -2,9 +2,10 @@ package core
 
 import (
 	"encoding/binary"
-	"github.com/oguzhane/saltyrtc-server-go/common"
-	"math"
 	"io"
+	"math"
+
+	"github.com/oguzhane/saltyrtc-server-go/common"
 )
 
 type CombinedSequenceNumber struct {
