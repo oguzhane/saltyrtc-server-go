@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 
@@ -60,9 +61,15 @@ func (csn *CombinedSequenceNumber) Increment() error {
 	}
 	if csn.sequenceNum == math.MaxUint32 {
 		csn.overflowNum = csn.overflowNum + 0x01
+		csn.sequenceNum = 0x00
+		return nil
 	}
 	csn.sequenceNum = csn.sequenceNum + 0x01
 	return nil
+}
+
+func (csn *CombinedSequenceNumber) EqualsTo(targetCsn *CombinedSequenceNumber) bool {
+	return csn.overflowNum == targetCsn.overflowNum && csn.sequenceNum == targetCsn.sequenceNum
 }
 
 func NewCombinedSequenceNumber(initialSequenceNum uint32) *CombinedSequenceNumber {
@@ -70,4 +77,17 @@ func NewCombinedSequenceNumber(initialSequenceNum uint32) *CombinedSequenceNumbe
 		overflowNum: 0x0000,
 		sequenceNum: initialSequenceNum,
 	}
+}
+
+func ParseCombinedSequenceNumber(csnBytes []byte) (*CombinedSequenceNumber, error) {
+	if len(csnBytes) != 6 {
+		return nil, errors.New("the length of csnBytes must be 6 bytes.")
+	}
+
+	csn := &CombinedSequenceNumber{
+		overflowNum: binary.BigEndian.Uint16(csnBytes[0:2]),
+		sequenceNum: binary.BigEndian.Uint32(csnBytes[2:6]),
+	}
+
+	return csn, nil
 }
