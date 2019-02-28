@@ -3,6 +3,7 @@ package message
 import (
 	"bufio"
 	"bytes"
+	"errors"
 
 	"github.com/oguzhane/saltyrtc-server-go/common"
 	"github.com/oguzhane/saltyrtc-server-go/core"
@@ -45,7 +46,7 @@ func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
 		}
 		dw.Write(payload)
 	} else { /*if there is no payloadPacker we will write empty (default) data. with that writing, we will have extra one byte(x\80) in payload field*/
-		payload, err := encodePayload(map[string]interface{})
+		payload, err := encodePayload(map[string]interface{}{})
 		if err != nil {
 			dw.Flush()
 			return nil, err
@@ -77,10 +78,28 @@ func encodePayload(payload map[string]interface{}) ([]byte, error) {
 	return b.Bytes(), err
 }
 
+func decodePayload(encodedPayload []byte) (map[string]interface{}, error) {
+	h := new(codec.MsgpackHandle)
+	dec := codec.NewDecoderBytes(encodedPayload, h)
+	v := make(map[string]interface{})
+	err := dec.Decode(&v)
+	return v, err
+}
+
 func encryptPayload(client *core.Client, nonce []byte, encodedPayload []byte) ([]byte, error) {
 	var nonceArr [24]byte
 	copy(nonceArr[:], nonce[:24])
 	return box.Seal(nil, encodedPayload, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk), nil
+}
+
+func decryptPayload(client *core.Client, nonce []byte, data []byte) ([]byte, error) {
+	var nonceArr [24]byte
+	copy(nonceArr[:], nonce[:24])
+	decryptedData, ok := box.Open(nil, data, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk)
+	if !ok {
+		return nil, errors.New("Could not decrypt payload")
+	}
+	return decryptedData, nil
 }
 
 func signKeys(c *core.Client, nonce []byte) []byte {
@@ -96,18 +115,26 @@ type BaseMessagePacker interface {
 	Pack(client *core.Client) ([]byte, error)
 }
 
+type BaseMessage interface {
+	GetSource() common.AddressType
+	SetSource(src common.AddressType)
+	GetDestination() common.AddressType
+	SetDestination(dst common.AddressType)
+	GetSourceType() common.AddressType
+	GetDestinationType() common.AddressType
+}
+
 // baseMessage //
 type baseMessage struct {
-	src        common.AddressType
-	dest       common.AddressType
-	sourceType common.AddressType
-	destType   common.AddressType
+	src  common.AddressType
+	dest common.AddressType
 }
 
 // baseMessage //
 
 // RawMessage //
 type RawMessage struct {
+	BaseMessage
 	baseMessage
 	data []byte
 }
@@ -115,10 +142,8 @@ type RawMessage struct {
 func NewRawMessage(src common.AddressType, dest common.AddressType, data []byte) *RawMessage {
 	return &RawMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		data: data,
 	}
@@ -126,6 +151,25 @@ func NewRawMessage(src common.AddressType, dest common.AddressType, data []byte)
 
 func (m *RawMessage) Pack(client *core.Client) ([]byte, error) {
 	return m.data, nil
+}
+
+func (m *RawMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *RawMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *RawMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *RawMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *RawMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *RawMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
 }
 
 // RawMessage //
@@ -139,10 +183,8 @@ type ServerHelloMessage struct {
 func (m *ServerHelloMessage) NewServerHelloMessage(src common.AddressType, dest common.AddressType, serverPublicKey []byte) *ServerHelloMessage {
 	return &ServerHelloMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		serverPublicKey: serverPublicKey,
 	}
@@ -158,6 +200,25 @@ func (m *ServerHelloMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *ServerHelloMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *ServerHelloMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *ServerHelloMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *ServerHelloMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *ServerHelloMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *ServerHelloMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // ServerHelloMessage //
 
 // ClientHelloMessage //
@@ -169,10 +230,8 @@ type ClientHelloMessage struct {
 func (m *ClientHelloMessage) NewClientHelloMessage(src common.AddressType, dest common.AddressType, clientPublicKey []byte) *ClientHelloMessage {
 	return &ClientHelloMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		clientPublicKey: clientPublicKey,
 	}
@@ -186,6 +245,25 @@ func (m *ClientHelloMessage) Pack(client *core.Client) ([]byte, error) {
 		}
 		return encodePayload(payload)
 	})
+}
+
+func (m *ClientHelloMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *ClientHelloMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *ClientHelloMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *ClientHelloMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *ClientHelloMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *ClientHelloMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
 }
 
 // ClientHelloMessage //
@@ -203,10 +281,8 @@ func (c *ClientAuthMessage) NewClientAuthMessage(src common.AddressType, dest co
 	subprotocols []string, pingInterval uint32, serverKey []byte) *ClientAuthMessage {
 	return &ClientAuthMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		serverCookie: serverCookie,
 		subprotocols: subprotocols,
@@ -242,6 +318,25 @@ func (m *ClientAuthMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *ClientAuthMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *ClientAuthMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *ClientAuthMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *ClientAuthMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *ClientAuthMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *ClientAuthMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // ClientAuthMessage //
 
 // ServerAuthMessage //
@@ -258,10 +353,8 @@ func NewServerAuthMessageForInitiator(src common.AddressType, dest common.Addres
 	signKeys bool, responderIds []common.AddressType) *ServerAuthMessage {
 	return &ServerAuthMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		clientCookie:     clientCookie,
 		signKeys:         signKeys,
@@ -274,10 +367,8 @@ func NewServerAuthMessageForResponder(src common.AddressType, dest common.Addres
 	signKeys bool, initiatorConnected bool) *ServerAuthMessage {
 	return &ServerAuthMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		clientCookie:       clientCookie,
 		signKeys:           signKeys,
@@ -317,6 +408,25 @@ func (m *ServerAuthMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *ServerAuthMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *ServerAuthMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *ServerAuthMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *ServerAuthMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *ServerAuthMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *ServerAuthMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // ServerAuthMessage //
 
 // NewInitiatorMessage //
@@ -327,10 +437,8 @@ type NewInitiatorMessage struct {
 func NewNewInitiatorMessage(src common.AddressType, dest common.AddressType) *NewInitiatorMessage {
 	return &NewInitiatorMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 	}
 }
@@ -356,6 +464,25 @@ func (m *NewInitiatorMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *NewInitiatorMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *NewInitiatorMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *NewInitiatorMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *NewInitiatorMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *NewInitiatorMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *NewInitiatorMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // NewInitiatorMessage //
 
 // NewResponderMessage //
@@ -367,10 +494,8 @@ type NewResponderMessage struct {
 func NewNewResponderMessage(src common.AddressType, dest common.AddressType, responderId common.AddressType) *NewResponderMessage {
 	return &NewResponderMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		responderId: responderId,
 	}
@@ -398,6 +523,25 @@ func (m *NewResponderMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *NewResponderMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *NewResponderMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *NewResponderMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *NewResponderMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *NewResponderMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *NewResponderMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // NewResponderMessage //
 
 // DropResponderMessage //
@@ -414,10 +558,8 @@ func NewDropResponderMessage(src common.AddressType, dest common.AddressType, re
 func NewDropResponderMessageWithReason(src common.AddressType, dest common.AddressType, responderId common.AddressType, reason int) *DropResponderMessage {
 	return &DropResponderMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		responderId: responderId,
 		reason:      reason,
@@ -447,6 +589,25 @@ func (m *DropResponderMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *DropResponderMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *DropResponderMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *DropResponderMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *DropResponderMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *DropResponderMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *DropResponderMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // DropResponderMessage //
 
 // SendErrorMessage //
@@ -458,10 +619,8 @@ type SendErrorMessage struct {
 func NewSendErrorMessage(src common.AddressType, dest common.AddressType, messageId []byte) *SendErrorMessage {
 	return &SendErrorMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		messageId: messageId,
 	}
@@ -489,6 +648,25 @@ func (m *SendErrorMessage) Pack(client *core.Client) ([]byte, error) {
 	})
 }
 
+func (m *SendErrorMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *SendErrorMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *SendErrorMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *SendErrorMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *SendErrorMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *SendErrorMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
+}
+
 // SendErrorMessage //
 
 // DisconnectedMessage //
@@ -500,10 +678,8 @@ type DisconnectedMessage struct {
 func NewDisconnectedMessage(src common.AddressType, dest common.AddressType, clientId []byte) *DisconnectedMessage {
 	return &DisconnectedMessage{
 		baseMessage: baseMessage{
-			src:        src,
-			dest:       dest,
-			sourceType: common.GetAddressTypeFromaAddr(src),
-			destType:   common.GetAddressTypeFromaAddr(dest),
+			src:  src,
+			dest: dest,
 		},
 		clientId: clientId,
 	}
@@ -529,6 +705,25 @@ func (m *DisconnectedMessage) Pack(client *core.Client) ([]byte, error) {
 		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
 		return encryptedPayload, err
 	})
+}
+
+func (m *DisconnectedMessage) GetSource() common.AddressType {
+	return m.src
+}
+func (m *DisconnectedMessage) SetSource(src common.AddressType) {
+	m.src = src
+}
+func (m *DisconnectedMessage) GetDestination() common.AddressType {
+	return m.dest
+}
+func (m *DisconnectedMessage) SetDestination(dst common.AddressType) {
+	m.dest = dst
+}
+func (m *DisconnectedMessage) GetSourceType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.src)
+}
+func (m *DisconnectedMessage) GetDestinationType() common.AddressType {
+	return common.GetAddressTypeFromaAddr(m.dest)
 }
 
 // DisconnectedMessage //
