@@ -4,8 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/oguzhane/saltyrtc-server-go/common/msgutil"
+	"github.com/oguzhane/saltyrtc-server-go/common/naclutil"
+
 	"github.com/oguzhane/saltyrtc-server-go/core"
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
@@ -62,6 +66,135 @@ func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
 	}
 	client.CombinedSequenceNumberOut.Increment()
 	return data.Bytes(), nil
+}
+
+func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
+	if len(data) < 25 {
+		return nil, errors.New("Message is too short")
+	}
+	nonce := data[:24]
+	cookie := nonce[:16]
+	var source common.AddressType = nonce[16:17][0]
+	var dest common.AddressType = nonce[17:18][0]
+	csnBytes := nonce[18:24]
+	sourceType := common.GetAddressTypeFromaAddr(source)
+	destType := common.GetAddressTypeFromaAddr(dest)
+
+	// Validate destination
+	isToServer := destType == common.Server
+	if typeHasVal, typeVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
+		return nil, common.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", dest))
+	}
+
+	// Validate source
+	if client.Id != source {
+		return nil, common.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, source))
+	}
+
+	// Validate cookie
+	if isToServer && client.SetCookieIn(cookie) != nil {
+		return nil, errors.New(fmt.Sprintf("Invalid cookie: 0x%x", cookie))
+	}
+
+	// validate and increase csn
+	if isToServer {
+		csn, err := core.ParseCombinedSequenceNumber(csnBytes)
+		if err != nil {
+			return nil, err
+		}
+		if client.CombinedSequenceNumberIn == nil {
+			if csn.GetOverflowNumber() != 0 {
+				return nil, errors.New("Invalid overflow number. It must be initialized with zero")
+			}
+			client.CombinedSequenceNumberIn = csn
+		} else {
+			if client.CombinedSequenceNumberIn.HasErrOverflowSentinel() {
+				return nil, common.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow")
+			}
+			if !client.CombinedSequenceNumberIn.EqualsTo(csn) {
+				return nil, errors.New("Received sequence number doesn't match with expected one")
+			}
+		}
+		client.CombinedSequenceNumberIn.Increment()
+	}
+	var payload map[string]interface{}
+	if destType == common.Server {
+		payloadRecv := data[24:]
+		decryptedPayload, err := decryptPayload(client, nonce, payloadRecv)
+		decodeData := decryptedPayload
+		if err != nil {
+			decodeData = payloadRecv
+		}
+		payload, err = decodePayload(decodeData)
+		if err != nil {
+			return nil, errors.New("Payload cannot be decoded")
+		}
+		_type, ok := payload["type"]
+		if !ok {
+			return nil, errors.New("Payload doesn't have 'type' field")
+		}
+
+		switch _type {
+		case "server-hello":
+			keyVal, ok := payload["key"]
+			if serverPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
+				return NewServerHelloMessage(source, dest, serverPk), nil
+			}
+			return nil, errors.New("server-hello#key is invalid")
+		case "client-hello":
+			keyVal, _ := payload["key"]
+			if clientPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
+				return NewClientHelloMessage(source, dest, clientPk), nil
+			}
+			return nil, errors.New("client-hello#key is invalid")
+		case "client-auth":
+			yourCookieVal, ok := payload["your_cookie"]
+			if !ok {
+				return nil, errors.New("client-auth#your_cookie cannot be found")
+			}
+			yourCookie, err := msgutil.ParseYourCookie(yourCookieVal)
+			if err != nil {
+				return nil, errors.New("client-auth#your_cookie is invalid")
+			}
+
+			subprotocolsVal, ok := payload["subprotocols"]
+			var subprotocols []string
+			if ok {
+				subprotocols, err = msgutil.ParseSubprotocols(subprotocolsVal)
+				if err != nil {
+					return nil, errors.New("client-auth#subprotocols is invalid")
+				}
+			}
+
+			pingIntervalVal, ok := payload["ping_interval"]
+			var pingInterval int
+			if ok {
+				pingInterval, err = msgutil.ParsePingInterval(pingIntervalVal)
+				if err != nil {
+					return nil, errors.New("client-auth#ping_interval is invalid")
+				}
+			}
+
+			yourKeyVal, ok := payload["your_key"]
+			var yourKey []byte
+			if ok {
+				yourKey, err = msgutil.ParseYourKey(yourKeyVal)
+				if err != nil {
+					return nil, errors.New("client-auth#your_key is invalid")
+				}
+			}
+			return NewClientAuthMessage(source, dest, yourCookie, subprotocols, uint32(pingInterval), yourKey), nil
+		case "new-initiator":
+		case "new-responder":
+		case "drop-responder":
+		case "send-error":
+		default:
+			return nil, errors.New("Payload doesn't have valid 'type' field")
+		}
+
+	} else {
+		return NewRawMessage(source, dest, data), nil
+	}
 }
 
 func encodePayload(payload map[string]interface{}) ([]byte, error) {
@@ -180,7 +313,7 @@ type ServerHelloMessage struct {
 	serverPublicKey []byte
 }
 
-func (m *ServerHelloMessage) NewServerHelloMessage(src common.AddressType, dest common.AddressType, serverPublicKey []byte) *ServerHelloMessage {
+func NewServerHelloMessage(src common.AddressType, dest common.AddressType, serverPublicKey []byte) *ServerHelloMessage {
 	return &ServerHelloMessage{
 		baseMessage: baseMessage{
 			src:  src,
@@ -227,7 +360,7 @@ type ClientHelloMessage struct {
 	clientPublicKey []byte
 }
 
-func (m *ClientHelloMessage) NewClientHelloMessage(src common.AddressType, dest common.AddressType, clientPublicKey []byte) *ClientHelloMessage {
+func NewClientHelloMessage(src common.AddressType, dest common.AddressType, clientPublicKey []byte) *ClientHelloMessage {
 	return &ClientHelloMessage{
 		baseMessage: baseMessage{
 			src:  src,
@@ -277,7 +410,7 @@ type ClientAuthMessage struct {
 	serverKey    []byte
 }
 
-func (c *ClientAuthMessage) NewClientAuthMessage(src common.AddressType, dest common.AddressType, serverCookie []byte,
+func NewClientAuthMessage(src common.AddressType, dest common.AddressType, serverCookie []byte,
 	subprotocols []string, pingInterval uint32, serverKey []byte) *ClientAuthMessage {
 	return &ClientAuthMessage{
 		baseMessage: baseMessage{
