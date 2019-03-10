@@ -1,7 +1,11 @@
 package msgutil
 
-import "errors"
-import "github.com/oguzhane/saltyrtc-server-go/common/naclutil"
+import (
+	"errors"
+
+	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/oguzhane/saltyrtc-server-go/common/naclutil"
+)
 
 func IsValidYourCookieBytes(pk interface{}) bool {
 	if pk == nil {
@@ -63,4 +67,56 @@ func IsValidYourKey(yourKey interface{}) bool {
 
 func ParseYourKey(yourKey interface{}) ([]byte, error) {
 	return naclutil.ConvertBoxPkToBytes(yourKey)
+}
+
+func IsValidAddressId(id interface{}) bool {
+	if id == nil {
+		return false
+	}
+	_, ok := id.(common.AddressType)
+	return ok
+}
+
+func ParseAddressId(id interface{}) (common.AddressType, error) {
+	if !IsValidAddressId(id) {
+		return 0, errors.New("Invalid address id")
+	}
+	v, _ := id.(common.AddressType)
+	return v, nil
+}
+
+func IsValidResponderAddressId(id interface{}) bool {
+	v, err := ParseAddressId(id)
+	return err == nil && common.IsValidResponderAddressType(v)
+}
+
+func ParseResponderAddressId(id interface{}) (common.AddressType, error) {
+	if !IsValidResponderAddressId(id) {
+		return 0, errors.New("Invalid responder address id")
+	}
+	v, _ := id.(common.AddressType)
+	return v, nil
+}
+
+func IsValidReasonCode(reason interface{}) bool {
+	if reason == nil {
+		return false
+	}
+	v, ok := reason.(int)
+
+	if ok &&
+		v == common.CloseCodeGoingAway ||
+		v == common.CloseCodeSubprotocolError ||
+		(v >= common.CloseCodePathFullError && v <= common.CloseCodeInvalidKey) {
+		return true
+	}
+	return false
+}
+
+func ParseReasonCode(reason interface{}) (int, error) {
+	if !IsValidReasonCode(reason) {
+		return 0, errors.New("Invalid reason code")
+	}
+	v, _ := reason.(int)
+	return v, nil
 }
