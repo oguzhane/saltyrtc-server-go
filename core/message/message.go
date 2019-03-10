@@ -77,7 +77,7 @@ func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
 	var source common.AddressType = nonce[16:17][0]
 	var dest common.AddressType = nonce[17:18][0]
 	csnBytes := nonce[18:24]
-	sourceType := common.GetAddressTypeFromaAddr(source)
+	// sourceType := common.GetAddressTypeFromaAddr(source)
 	destType := common.GetAddressTypeFromaAddr(dest)
 
 	// Validate destination
@@ -136,7 +136,7 @@ func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
 
 		switch _type {
 		case "server-hello":
-			keyVal, ok := payload["key"]
+			keyVal, _ := payload["key"]
 			if serverPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
 				return NewServerHelloMessage(source, dest, serverPk), nil
 			}
@@ -185,9 +185,27 @@ func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
 			}
 			return NewClientAuthMessage(source, dest, yourCookie, subprotocols, uint32(pingInterval), yourKey), nil
 		case "new-initiator":
+			return NewNewInitiatorMessage(source, dest), nil
 		case "new-responder":
+			id, err := msgutil.ParseAddressId(payload["id"])
+			if err != nil {
+				return nil, errors.New("new-responder#id is invalid")
+			}
+			return NewNewResponderMessage(source, dest, id), nil
 		case "drop-responder":
-		case "send-error":
+			id, err := msgutil.ParseAddressId(payload["id"])
+			if err != nil {
+				return nil, errors.New("drop-responder#id is invalid")
+			}
+			reasonVal, ok := payload["reason"]
+			if ok {
+				reason, err := msgutil.ParseReasonCode(reasonVal)
+				if err != nil {
+					return nil, errors.New("drop-responder#reason is invalid")
+				}
+				return NewDropResponderMessageWithReason(source, dest, id, reason), nil
+			}
+			return NewDropResponderMessage(source, dest, id), nil
 		default:
 			return nil, errors.New("Payload doesn't have valid 'type' field")
 		}
