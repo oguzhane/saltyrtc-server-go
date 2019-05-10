@@ -1,4 +1,4 @@
-package message
+package core
 
 import (
 	"bufio"
@@ -10,14 +10,13 @@ import (
 	"github.com/oguzhane/saltyrtc-server-go/common/msgutil"
 	"github.com/oguzhane/saltyrtc-server-go/common/naclutil"
 
-	"github.com/oguzhane/saltyrtc-server-go/core"
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
 )
 
 type payloadPacker func(readNonce func() ([]byte, error)) ([]byte, error)
 
-func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
+func Pack(client *Client, src common.AddressType, dest common.AddressType,
 	packPayload payloadPacker) ([]byte, error) {
 	if client.CombinedSequenceNumberOut.HasErrOverflowSentinel() {
 		return nil, common.NewMessageFlowError("Cannot send any more messages, due to a sequence number counter overflow")
@@ -68,7 +67,7 @@ func Pack(client *core.Client, src common.AddressType, dest common.AddressType,
 	return data.Bytes(), nil
 }
 
-func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
+func Unpack(client *Client, data []byte) (BaseMessage, error) {
 	if len(data) < 25 {
 		return nil, errors.New("Message is too short")
 	}
@@ -98,7 +97,7 @@ func Unpack(client *core.Client, data []byte) (BaseMessage, error) {
 
 	// validate and increase csn
 	if isToServer {
-		csn, err := core.ParseCombinedSequenceNumber(csnBytes)
+		csn, err := ParseCombinedSequenceNumber(csnBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -237,13 +236,13 @@ func decodePayload(encodedPayload []byte) (map[string]interface{}, error) {
 	return v, err
 }
 
-func encryptPayload(client *core.Client, nonce []byte, encodedPayload []byte) ([]byte, error) {
+func encryptPayload(client *Client, nonce []byte, encodedPayload []byte) ([]byte, error) {
 	var nonceArr [24]byte
 	copy(nonceArr[:], nonce[:24])
 	return box.Seal(nil, encodedPayload, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk), nil
 }
 
-func decryptPayload(client *core.Client, nonce []byte, data []byte) ([]byte, error) {
+func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
 	var nonceArr [24]byte
 	copy(nonceArr[:], nonce[:24])
 	decryptedData, ok := box.Open(nil, data, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk)
@@ -253,7 +252,7 @@ func decryptPayload(client *core.Client, nonce []byte, data []byte) ([]byte, err
 	return decryptedData, nil
 }
 
-func signKeys(c *core.Client, nonce []byte) []byte {
+func signKeys(c *Client, nonce []byte) []byte {
 	var nonceArr [24]byte
 	copy(nonceArr[:], nonce[:24])
 	var buf bytes.Buffer
@@ -263,7 +262,7 @@ func signKeys(c *core.Client, nonce []byte) []byte {
 }
 
 type BaseMessagePacker interface {
-	Pack(client *core.Client) ([]byte, error)
+	Pack(client *Client) ([]byte, error)
 }
 
 type BaseMessage interface {
@@ -300,7 +299,7 @@ func NewRawMessage(src common.AddressType, dest common.AddressType, data []byte)
 	}
 }
 
-func (m *RawMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *RawMessage) Pack(client *Client) ([]byte, error) {
 	return m.data, nil
 }
 
@@ -341,7 +340,7 @@ func NewServerHelloMessage(src common.AddressType, dest common.AddressType, serv
 	}
 }
 
-func (m *ServerHelloMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *ServerHelloMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": []byte(common.ServerHello),
@@ -388,7 +387,7 @@ func NewClientHelloMessage(src common.AddressType, dest common.AddressType, clie
 	}
 }
 
-func (m *ClientHelloMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *ClientHelloMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": []byte(common.ClientHello),
@@ -442,7 +441,7 @@ func NewClientAuthMessage(src common.AddressType, dest common.AddressType, serve
 	}
 }
 
-func (m *ClientAuthMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *ClientAuthMessage) Pack(client *Client) ([]byte, error) {
 	if !client.Authenticated {
 		return nil, common.NewMessageFlowError("Cannot encrypt payload")
 	}
@@ -528,7 +527,7 @@ func NewServerAuthMessageForResponder(src common.AddressType, dest common.Addres
 	}
 }
 
-func (m *ServerAuthMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *ServerAuthMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type":        common.ServerAuth,
@@ -594,7 +593,7 @@ func NewNewInitiatorMessage(src common.AddressType, dest common.AddressType) *Ne
 	}
 }
 
-func (m *NewInitiatorMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *NewInitiatorMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": common.NewInitiator,
@@ -652,7 +651,7 @@ func NewNewResponderMessage(src common.AddressType, dest common.AddressType, res
 	}
 }
 
-func (m *NewResponderMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *NewResponderMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": common.NewResponder,
@@ -717,7 +716,7 @@ func NewDropResponderMessageWithReason(src common.AddressType, dest common.Addre
 	}
 }
 
-func (m *DropResponderMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *DropResponderMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type":   common.DropResponder,
@@ -777,7 +776,7 @@ func NewSendErrorMessage(src common.AddressType, dest common.AddressType, messag
 	}
 }
 
-func (m *SendErrorMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *SendErrorMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": common.SendError,
@@ -836,7 +835,7 @@ func NewDisconnectedMessage(src common.AddressType, dest common.AddressType, cli
 	}
 }
 
-func (m *DisconnectedMessage) Pack(client *core.Client) ([]byte, error) {
+func (m *DisconnectedMessage) Pack(client *Client) ([]byte, error) {
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{
 			"type": common.Disconnected,
