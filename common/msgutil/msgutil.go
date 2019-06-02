@@ -12,7 +12,7 @@ func IsValidYourCookieBytes(pk interface{}) bool {
 		return false
 	}
 	b, ok := pk.([]byte)
-	if ok && len(b) == 16 {
+	if ok && len(b) == common.CookieLength {
 		return true
 	}
 	return false

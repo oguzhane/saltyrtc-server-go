@@ -68,14 +68,14 @@ func Pack(client *Client, src common.AddressType, dest common.AddressType,
 }
 
 func Unpack(client *Client, data []byte) (BaseMessage, error) {
-	if len(data) < 25 {
+	if len(data) < common.DataLengthMin {
 		return nil, errors.New("Message is too short")
 	}
-	nonce := data[:24]
-	cookie := nonce[:16]
-	var source common.AddressType = nonce[16:17][0]
-	var dest common.AddressType = nonce[17:18][0]
-	csnBytes := nonce[18:24]
+	nonce := data[:common.NonceLength]
+	cookie := nonce[:common.CookieLength]
+	var source common.AddressType = nonce[common.CookieLength:common.SourceUpperBound][0]
+	var dest common.AddressType = nonce[common.SourceUpperBound:common.DestinationUpperBound][0]
+	csnBytes := nonce[common.DestinationUpperBound:common.CsnUpperBound]
 	// sourceType := common.GetAddressTypeFromaAddr(source)
 	destType := common.GetAddressTypeFromaAddr(dest)
 
@@ -118,7 +118,7 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 	}
 	var payload map[string]interface{}
 	if destType == common.Server {
-		payloadRecv := data[24:]
+		payloadRecv := data[common.NonceLength:]
 		decryptedPayload, err := decryptPayload(client, nonce, payloadRecv)
 		decodeData := decryptedPayload
 		if err != nil {
@@ -237,14 +237,14 @@ func decodePayload(encodedPayload []byte) (map[string]interface{}, error) {
 }
 
 func encryptPayload(client *Client, nonce []byte, encodedPayload []byte) ([]byte, error) {
-	var nonceArr [24]byte
-	copy(nonceArr[:], nonce[:24])
+	var nonceArr [common.NonceLength]byte
+	copy(nonceArr[:], nonce[:common.NonceLength])
 	return box.Seal(nil, encodedPayload, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk), nil
 }
 
 func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
-	var nonceArr [24]byte
-	copy(nonceArr[:], nonce[:24])
+	var nonceArr [common.NonceLength]byte
+	copy(nonceArr[:], nonce[:common.NonceLength])
 	decryptedData, ok := box.Open(nil, data, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk)
 	if !ok {
 		return nil, errors.New("Could not decrypt payload")
@@ -253,8 +253,8 @@ func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
 }
 
 func signKeys(c *Client, nonce []byte) []byte {
-	var nonceArr [24]byte
-	copy(nonceArr[:], nonce[:24])
+	var nonceArr [common.NonceLength]byte
+	copy(nonceArr[:], nonce[:common.NonceLength])
 	var buf bytes.Buffer
 	buf.Write(c.ServerSessionBox.Pk[:])
 	buf.Write(c.ClientKey[:])
