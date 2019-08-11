@@ -37,3 +37,7 @@ const (
 	DestinationUpperBound = SourceUpperBound + DestinationLength
 	CsnUpperBound         = NonceLength
 )
+
+const (
+	SubprotocolSaltyRTCv1 = "v1.saltyrtc.org"
+)
