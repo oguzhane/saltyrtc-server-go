@@ -6,12 +6,12 @@ import (
 	"io/ioutil"
 	"sync"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common/arrayutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common/naclutil"
-
-	"github.com/OguzhanE/saltyrtc-server-go/common"
-	"github.com/OguzhanE/saltyrtc-server-go/common/randutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/randutil"
 	ws "github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
@@ -61,9 +61,9 @@ type Client struct {
 	conn    *ClientConn
 	machine *statmach.StateMachine
 
-	ClientKey          [common.KeyBytesSize]byte
-	ServerSessionBox   *common.BoxKeyPair
-	ServerPermanentBox *common.BoxKeyPair
+	ClientKey          [base.KeyBytesSize]byte
+	ServerSessionBox   *boxkeypair.BoxKeyPair
+	ServerPermanentBox *boxkeypair.BoxKeyPair
 	CookieOut          []byte
 	cookieIn           []byte
 
@@ -71,8 +71,8 @@ type Client struct {
 	CombinedSequenceNumberIn  *CombinedSequenceNumber
 
 	Authenticated bool
-	Id            common.AddressType
-	typeValue     common.AddressType
+	Id            base.AddressType
+	typeValue     base.AddressType
 	typeHasValue  bool
 	Path          *Path
 	Server        *Server
@@ -98,7 +98,7 @@ func (c *Client) Init() {
 		*/
 		bag, _ := params[0].(*CallbackBag)
 
-		msg := NewServerHelloMessage(common.Server, c.Id, c.ServerSessionBox.Pk[:])
+		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
 		err := c.Send(msg)
 		if err != nil {
 			bag.err = err
@@ -135,8 +135,8 @@ func (c *Client) Init() {
 			bag.err = errors.New("invalid client public key length")
 			return false
 		}
-		c.SetType(common.Responder)
-		copy(c.ClientKey[:], msg.clientPublicKey[0:common.KeyBytesSize])
+		c.SetType(base.Responder)
+		copy(c.ClientKey[:], msg.clientPublicKey[0:base.KeyBytesSize])
 		return true
 	})
 	// ServerHello->ClientAuth transformation states this method below for initiator handshake
@@ -445,7 +445,7 @@ func (c *Client) Init() {
 }
 
 // todo: implement it properly
-func NewClient(conn *ClientConn, clientKey [common.KeyBytesSize]byte, permanentBox, sessionBox *common.BoxKeyPair) (*Client, error) {
+func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(16)
 	if err != nil {
 		return nil, err
@@ -481,10 +481,10 @@ func (c *Client) SetCookieIn(cookieIn []byte) error {
 	return nil
 }
 
-func (c *Client) GetType() (common.AddressType, bool) {
+func (c *Client) GetType() (base.AddressType, bool) {
 	return c.typeValue, c.typeHasValue
 }
-func (c *Client) SetType(t common.AddressType) {
+func (c *Client) SetType(t base.AddressType) {
 	c.typeHasValue = true
 	c.typeValue = t
 }

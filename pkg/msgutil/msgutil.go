@@ -3,8 +3,8 @@ package msgutil
 import (
 	"errors"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common"
-	"github.com/OguzhanE/saltyrtc-server-go/common/naclutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
 )
 
 func IsValidYourCookieBytes(pk interface{}) bool {
@@ -12,7 +12,7 @@ func IsValidYourCookieBytes(pk interface{}) bool {
 		return false
 	}
 	b, ok := pk.([]byte)
-	if ok && len(b) == common.CookieLength {
+	if ok && len(b) == base.CookieLength {
 		return true
 	}
 	return false
@@ -73,28 +73,28 @@ func IsValidAddressId(id interface{}) bool {
 	if id == nil {
 		return false
 	}
-	_, ok := id.(common.AddressType)
+	_, ok := id.(base.AddressType)
 	return ok
 }
 
-func ParseAddressId(id interface{}) (common.AddressType, error) {
+func ParseAddressId(id interface{}) (base.AddressType, error) {
 	if !IsValidAddressId(id) {
 		return 0, errors.New("Invalid address id")
 	}
-	v, _ := id.(common.AddressType)
+	v, _ := id.(base.AddressType)
 	return v, nil
 }
 
 func IsValidResponderAddressId(id interface{}) bool {
 	v, err := ParseAddressId(id)
-	return err == nil && common.IsValidResponderAddressType(v)
+	return err == nil && base.IsValidResponderAddressType(v)
 }
 
-func ParseResponderAddressId(id interface{}) (common.AddressType, error) {
+func ParseResponderAddressId(id interface{}) (base.AddressType, error) {
 	if !IsValidResponderAddressId(id) {
 		return 0, errors.New("Invalid responder address id")
 	}
-	v, _ := id.(common.AddressType)
+	v, _ := id.(base.AddressType)
 	return v, nil
 }
 
@@ -105,9 +105,9 @@ func IsValidReasonCode(reason interface{}) bool {
 	v, ok := reason.(int)
 
 	if ok &&
-		v == common.CloseCodeGoingAway ||
-		v == common.CloseCodeSubprotocolError ||
-		(v >= common.CloseCodePathFullError && v <= common.CloseCodeInvalidKey) {
+		v == base.CloseCodeGoingAway ||
+		v == base.CloseCodeSubprotocolError ||
+		(v >= base.CloseCodePathFullError && v <= base.CloseCodeInvalidKey) {
 		return true
 	}
 	return false

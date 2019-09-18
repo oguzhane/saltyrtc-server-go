@@ -1,17 +1,18 @@
-package common
+package boxkeypair
 
 import (
 	"crypto/rand"
 
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"golang.org/x/crypto/nacl/box"
 )
 
 type BoxKeyPair struct {
-	Pk [KeyBytesSize]byte
-	Sk [KeyBytesSize]byte
+	Pk [base.KeyBytesSize]byte
+	Sk [base.KeyBytesSize]byte
 }
 
-func NewBoxKeyPair(pk [KeyBytesSize]byte, sk [KeyBytesSize]byte) *BoxKeyPair {
+func NewBoxKeyPair(pk [base.KeyBytesSize]byte, sk [base.KeyBytesSize]byte) *BoxKeyPair {
 	return &BoxKeyPair{
 		Pk: pk,
 		Sk: sk,

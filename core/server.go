@@ -6,9 +6,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common"
-	"github.com/OguzhanE/saltyrtc-server-go/common/gopool"
-	"github.com/OguzhanE/saltyrtc-server-go/common/hexutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
 	ws "github.com/gobwas/ws"
 	"github.com/mailru/easygo/netpoll"
 )
@@ -32,8 +34,8 @@ type Server struct {
 func NewServer() *Server {
 	return &Server{
 		paths:        NewPaths(),
-		subprotocols: []string{common.SubprotocolSaltyRTCv1},
-		subprotocol:  common.SubprotocolSaltyRTCv1,
+		subprotocols: []string{base.SubprotocolSaltyRTCv1},
+		subprotocol:  base.SubprotocolSaltyRTCv1,
 	}
 }
 
@@ -53,7 +55,7 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 
 	if err != nil {
 		log.Printf("%s: upgrade error: %v", conn.RemoteAddr().String(), err)
-		closeClientConn(clientConn, common.CloseCodeProtocolError)
+		closeClientConn(clientConn, base.CloseCodeProtocolError)
 		return
 	}
 
@@ -65,7 +67,7 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 		path = s.paths.AddNewPath(initiatorKey)
 		if path == nil {
 			log.Printf("cannot create new path, key:%s.", initiatorKey)
-			closeClientConn(clientConn, common.CloseCodeInternalError)
+			closeClientConn(clientConn, base.CloseCodeInternalError)
 			return
 		}
 	}
@@ -73,12 +75,12 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 	initiatorKeyBytes, err := hexutil.HexStringToBytes32(initiatorKey)
 	if err != nil {
 		log.Println("Closing due to invalid key:", initiatorKey)
-		closeClientConn(clientConn, common.CloseCodeInternalError)
+		closeClientConn(clientConn, base.CloseCodeInternalError)
 		// todo: free up the path if it is necessary
 		return
 	}
 	var client *Client
-	box, err := common.GenerateBoxKeyPair()
+	box, err := boxkeypair.GenerateBoxKeyPair()
 	if err == nil {
 		// TODO: pass appropriate params (permanent box)
 		client, err = NewClient(&clientConn, *initiatorKeyBytes, nil, box)
@@ -87,7 +89,7 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 	}
 	if err != nil || client == nil {
 		log.Println("Closing due to internal err:", err)
-		closeClientConn(clientConn, common.CloseCodeInternalError)
+		closeClientConn(clientConn, base.CloseCodeInternalError)
 		return
 	}
 	log.Println("Connection established. key:", initiatorKey)

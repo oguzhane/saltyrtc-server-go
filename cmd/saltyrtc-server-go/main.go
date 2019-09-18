@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-	fmt.Println("not yet ;)")
+	fmt.Println("not ready yet :)")
 }

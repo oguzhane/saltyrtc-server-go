@@ -6,7 +6,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 )
 
 type CombinedSequenceNumber struct {
@@ -17,7 +17,7 @@ type CombinedSequenceNumber struct {
 
 func (csn *CombinedSequenceNumber) AsBytes() ([]byte, error) {
 	if csn.hasErrOverflowSentinel {
-		return nil, common.ErrOverflowSentinel
+		return nil, base.ErrOverflowSentinel
 	}
 	b := make([]byte, 6)
 	binary.BigEndian.PutUint16(b[0:], csn.overflowNum)
@@ -27,7 +27,7 @@ func (csn *CombinedSequenceNumber) AsBytes() ([]byte, error) {
 
 func (csn *CombinedSequenceNumber) Write(w io.Writer) error {
 	if csn.hasErrOverflowSentinel {
-		return common.ErrOverflowSentinel
+		return base.ErrOverflowSentinel
 	}
 	err := binary.Write(w, binary.BigEndian, csn.overflowNum)
 	if err != nil {
@@ -57,7 +57,7 @@ func (csn *CombinedSequenceNumber) Increment() error {
 	if csn.hasErrOverflowSentinel ||
 		(csn.overflowNum == math.MaxUint16 && csn.sequenceNum == math.MaxUint32) {
 		csn.hasErrOverflowSentinel = true
-		return common.ErrOverflowSentinel
+		return base.ErrOverflowSentinel
 	}
 	if csn.sequenceNum == math.MaxUint32 {
 		csn.overflowNum = csn.overflowNum + 0x01

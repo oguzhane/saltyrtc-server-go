@@ -1,4 +1,4 @@
-package common
+package base
 
 type AddressType = uint8
 

@@ -5,26 +5,26 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 )
 
 // IsValidHexKeyString validates key
 func IsValidHexKeyString(key string) error {
 
-	if len(key) != common.KeyStringLength {
-		return common.NewValueError(fmt.Sprintf("invalid key length. Key length must be:{%d}", common.KeyStringLength))
+	if len(key) != base.KeyStringLength {
+		return base.NewValueError(fmt.Sprintf("invalid key length. Key length must be:{%d}", base.KeyStringLength))
 	}
 	return IsValidHexString(key)
 }
 
 // IsValidHexPathString validates pathStr
 func IsValidHexPathString(pathStr string) error {
-	if len(pathStr) != common.PathLength {
-		return common.NewPathError(fmt.Sprintf("invalid path length. Path length must be :{%d}", common.PathLength))
+	if len(pathStr) != base.PathLength {
+		return base.NewPathError(fmt.Sprintf("invalid path length. Path length must be :{%d}", base.PathLength))
 	}
 	err := IsValidHexString(pathStr)
 	if err != nil {
-		return common.NewPathError("Path characters should be valid hex char(0-f)")
+		return base.NewPathError("Path characters should be valid hex char(0-f)")
 	}
 	return nil
 }
@@ -34,7 +34,7 @@ func IsValidHexString(s string) error {
 	for _, c := range s {
 		isValid := (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102)
 		if !isValid {
-			return common.NewValueError("invalid hex string")
+			return base.NewValueError("invalid hex string")
 		}
 	}
 	return nil

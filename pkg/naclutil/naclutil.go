@@ -3,7 +3,7 @@ package naclutil
 import (
 	"errors"
 
-	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 )
 
 func IsValidBoxPkBytes(pk interface{}) bool {
@@ -11,7 +11,7 @@ func IsValidBoxPkBytes(pk interface{}) bool {
 		return false
 	}
 	b, ok := pk.([]byte)
-	if ok && len(b) == common.KeyBytesSize {
+	if ok && len(b) == base.KeyBytesSize {
 		return true
 	}
 	return false
