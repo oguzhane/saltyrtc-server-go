@@ -3,8 +3,8 @@ package msgutil
 import (
 	"errors"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
-	"github.com/oguzhane/saltyrtc-server-go/common/naclutil"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common/naclutil"
 )
 
 func IsValidYourCookieBytes(pk interface{}) bool {

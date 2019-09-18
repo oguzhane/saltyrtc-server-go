@@ -36,9 +36,6 @@ func (w Worker) Start() {
 			select {
 			case job := <-w.JobChannel:
 				// we have received a work request.
-				// if err := job.Run(); err != nil {
-				// 	log.Errorf("Error uploading to S3: %s", err.Error())
-				// }
 				job.Run()
 			case <-w.quit:
 				// we have received a signal to stop

@@ -6,7 +6,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
 )
 
 type CombinedSequenceNumber struct {

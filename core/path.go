@@ -3,7 +3,7 @@ package core
 import (
 	"fmt"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
 )
 
 // Path is responsible for web socket connection path for responder and initiators

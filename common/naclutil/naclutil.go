@@ -3,7 +3,7 @@ package naclutil
 import (
 	"errors"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
 )
 
 func IsValidBoxPkBytes(pk interface{}) bool {

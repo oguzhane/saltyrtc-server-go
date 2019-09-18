@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
 )
 
 // IsValidHexKeyString validates key

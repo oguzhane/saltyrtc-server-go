@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/oguzhane/saltyrtc-server-go/common"
-	"github.com/oguzhane/saltyrtc-server-go/common/msgutil"
-	"github.com/oguzhane/saltyrtc-server-go/common/naclutil"
+	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common/msgutil"
+	"github.com/OguzhanE/saltyrtc-server-go/common/naclutil"
 
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
@@ -81,7 +81,7 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 
 	// Validate destination
 	isToServer := destType == common.Server
-	if typeHasVal, typeVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
+	if typeVal, typeHasVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
 		return nil, common.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", dest))
 	}
 

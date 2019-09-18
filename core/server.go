@@ -6,11 +6,11 @@ import (
 	"net"
 	"time"
 
+	"github.com/OguzhanE/saltyrtc-server-go/common"
+	"github.com/OguzhanE/saltyrtc-server-go/common/gopool"
+	"github.com/OguzhanE/saltyrtc-server-go/common/hexutil"
 	ws "github.com/gobwas/ws"
 	"github.com/mailru/easygo/netpoll"
-	"github.com/oguzhane/saltyrtc-server-go/common"
-	"github.com/oguzhane/saltyrtc-server-go/common/gopool"
-	"github.com/oguzhane/saltyrtc-server-go/common/hexutil"
 )
 
 var ErrScheduleTimeout = fmt.Errorf("schedule error: timed out")
@@ -22,14 +22,18 @@ const (
 
 // Server handles clients
 type Server struct {
-	paths    *Paths
-	jobQueue chan gopool.Job
+	paths        *Paths
+	jobQueue     chan gopool.Job
+	subprotocols []string
+	subprotocol  string
 }
 
 // NewServer creates new server instance
 func NewServer() *Server {
 	return &Server{
-		paths: NewPaths(),
+		paths:        NewPaths(),
+		subprotocols: []string{common.SubprotocolSaltyRTCv1},
+		subprotocol:  common.SubprotocolSaltyRTCv1,
 	}
 }
 
@@ -70,11 +74,18 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 	if err != nil {
 		log.Println("Closing due to invalid key:", initiatorKey)
 		closeClientConn(clientConn, common.CloseCodeInternalError)
+		// todo: free up the path if it is necessary
 		return
 	}
-
-	client, err := NewClient(&clientConn, *initiatorKeyBytes)
-	if err != nil {
+	var client *Client
+	box, err := common.GenerateBoxKeyPair()
+	if err == nil {
+		// TODO: pass appropriate params (permanent box)
+		client, err = NewClient(&clientConn, *initiatorKeyBytes, nil, box)
+		client.Path = path
+		client.Server = s
+	}
+	if err != nil || client == nil {
 		log.Println("Closing due to internal err:", err)
 		closeClientConn(clientConn, common.CloseCodeInternalError)
 		return
