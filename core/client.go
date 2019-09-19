@@ -41,15 +41,15 @@ const (
 
 // Triggers
 const (
-	SEND_SERVER_HELLO_MSG  = "sendServerHelloMessage"
-	GET_CLIENT_HELLO_MSG   = "getClientHelloMessage"
-	GET_CLIENT_AUTH_MSG    = "getClientAuthMessage"
-	SEND_SERVER_AUTH_MSG   = "sendServerAuthMessage"
-	SEND_NEW_INITIATOR_MSG = "sendNewInitiatorMessage"
-	SEND_NEW_RESPONDER_MSG = "sendNewResponderMessage"
-	GET_DROP_RESPONDER_MSG = "getDropResponderMessage"
-	SEND_SEND_ERROR_MSG    = "sendSendErrorMessage"
-	SEND_DISCONNECTED_MSG  = "sendDisconnectedMessage"
+	SendServerHelloMsg  = "sendServerHelloMessage"
+	GetClientHelloMsg   = "getClientHelloMessage"
+	GetClientAuthMsg    = "getClientAuthMessage"
+	SendServerAuthMsg   = "sendServerAuthMessage"
+	SendNewInitiatorMsg = "sendNewInitiatorMessage"
+	SendNewResponderMsg = "sendNewResponderMessage"
+	GetDropResponderMsg = "getDropResponderMessage"
+	SendSendErrorMsg    = "sendSendErrorMessage"
+	SendDisconnectedMsg = "sendDisconnectedMessage"
 )
 
 type CallbackBag struct {
@@ -82,7 +82,7 @@ func (c *Client) Init() {
 	sm := statmach.New(ClientConnected)
 	c.machine = sm
 	sc := sm.Configure(ClientConnected)
-	sc.PermitIf(SEND_SERVER_HELLO_MSG, ServerHello, func(params ...interface{}) bool {
+	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
 		/*
 					This message MUST be sent by the server after a client connected to the server using a valid signalling path.
 					The server MUST generate a new cryptographically secure random NaCl key pair for each client.
@@ -109,7 +109,7 @@ func (c *Client) Init() {
 
 	// configure ServerHello
 	sc = sm.Configure(ServerHello)
-	sc.PermitIf(GET_CLIENT_HELLO_MSG, ClientHello, func(params ...interface{}) bool {
+	sc.PermitIf(GetClientHelloMsg, ClientHello, func(params ...interface{}) bool {
 		/*
 			As soon as the client has received the 'server-hello' message, it MUST ONLY respond with this message in case the client takes the role of a responder.
 			The initiator MUST skip this message. The responder MUST set the public key (32 bytes) of the permanent key pair in the key field of this message.
@@ -140,7 +140,7 @@ func (c *Client) Init() {
 		return true
 	})
 	// ServerHello->ClientAuth transformation states this method below for initiator handshake
-	sc.PermitIf(GET_CLIENT_AUTH_MSG, ClientAuth, func(params ...interface{}) bool {
+	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
 		/*
 			   After the 'client-hello' message has been sent (responder) or after the 'server-hello' message has been received (initiator) the client MUST send this message to the server.
 
@@ -209,7 +209,7 @@ func (c *Client) Init() {
 	})
 	// configure ClientHello
 	sc = sm.Configure(ClientHello)
-	sc.PermitIf(GET_CLIENT_AUTH_MSG, ClientAuth, func(params ...interface{}) bool {
+	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
 		/*
 		   After the 'client-hello' message has been sent (responder) or after the 'server-hello' message has been received (initiator) the client MUST send this message to the server.
 
@@ -249,7 +249,7 @@ func (c *Client) Init() {
 
 	// configure ClientAuth
 	sc = sm.Configure(ClientAuth)
-	sc.PermitIf(SEND_SERVER_AUTH_MSG, ServerAuth, func(params ...interface{}) bool {
+	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		/*
 					Once the server has received the 'client-auth' message, it SHALL reply with this message. Depending on the client's role, the server SHALL choose and assign an identity to the client by setting the destination address accordingly:
 
@@ -286,7 +286,7 @@ func (c *Client) Init() {
 
 	// configure ServerAuth
 	sc = sm.Configure(ServerAuth)
-	sc.PermitIf(SEND_NEW_INITIATOR_MSG, NewInitiator, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		/*
 
 			When a new initiator has authenticated itself towards the server on a path, the server MUST send this message to all currently authenticated responders on the same path. No additional field needs to be set. The server MUST ensure that a 'new-initiator' message has been sent before the corresponding initiator is able to send messages to any responder.
@@ -301,7 +301,7 @@ func (c *Client) Init() {
 		*/
 		return true
 	})
-	sc.PermitIf(SEND_SEND_ERROR_MSG, SendError, func(params ...interface{}) bool {
+	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
 		/*
 
 			In case the server could not relay a client-to-client message (meaning that the connection between server and the receiver has been severed), the server MUST send this message to the original sender of the message that should have been relayed. The server SHALL set the id field to the concatenation of the source address, the destination address, the overflow number and the sequence number (or the combined sequence number) of the nonce section from the original message.
@@ -317,7 +317,7 @@ func (c *Client) Init() {
 		*/
 		return true
 	})
-	sc.PermitIf(SEND_DISCONNECTED_MSG, Disconnected, func(params ...interface{}) bool {
+	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 		/*
 		   If an initiator that has been authenticated towards the server terminates the connection with the server, the server SHALL send this message towards all connected and authenticated responders.
 
@@ -338,7 +338,7 @@ func (c *Client) Init() {
 		*/
 		return true
 	})
-	sc.PermitIf(GET_DROP_RESPONDER_MSG, DropResponder, func(params ...interface{}) bool {
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 		/*
 		   At any time, an authenticated initiator MAY request to drop an authenticated responder from the path the initiator is connected to by sending this message. The initiator MUST include the id field and set its value to the responder's identity the initiator wants to drop. In addition, it MAY include the reason field which contains an optional close code the server SHALL close the connection to the responder with. Before the message is being sent, the initiator SHALL delete all currently cached information (such as cookies and sequence numbers) about and for the previous responder that used the same address.
 
@@ -354,7 +354,7 @@ func (c *Client) Init() {
 		*/
 		return true
 	})
-	sc.PermitIf(SEND_NEW_RESPONDER_MSG, NewResponder, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
 		/*
 		   As soon as a new responder has authenticated itself towards the server on path, the server MUST send this message to an authenticated initiator on the same path. The field id MUST be set to the assigned identity of the newly connected responder. The server MUST ensure that a 'new-responder' message has been sent before the corresponding responder is able to send messages to the initiator.
 
@@ -379,67 +379,67 @@ func (c *Client) Init() {
 
 	// configure InitiatorSuperState
 	sc = sm.Configure(InitiatorSuperState)
-	sc.PermitIf(SEND_NEW_RESPONDER_MSG, NewResponder, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(GET_DROP_RESPONDER_MSG, DropResponder, func(params ...interface{}) bool {
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 
 		return true
 	})
-	sc.PermitIf(SEND_SEND_ERROR_MSG, SendError, func(params ...interface{}) bool {
+	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_DISCONNECTED_MSG, Disconnected, func(params ...interface{}) bool {
+	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 		return true
 	})
 
 	// configure NewInitiator
 	sc = sm.Configure(NewInitiator)
-	sc.PermitReentryIf(SEND_NEW_INITIATOR_MSG, func(params ...interface{}) bool {
+	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
 
 		return true
 	})
-	sc.PermitIf(SEND_SEND_ERROR_MSG, SendError, func(params ...interface{}) bool {
+	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
 
 		return true
 	})
-	sc.PermitIf(SEND_DISCONNECTED_MSG, Disconnected, func(params ...interface{}) bool {
+	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 
 		return true
 	})
 
 	// configure SendError
 	sc = sm.Configure(SendError)
-	sc.PermitReentryIf(SEND_SEND_ERROR_MSG, func(params ...interface{}) bool {
+	sc.PermitReentryIf(SendSendErrorMsg, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_DISCONNECTED_MSG, Disconnected, func(params ...interface{}) bool {
+	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_NEW_INITIATOR_MSG, NewInitiator, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_NEW_RESPONDER_MSG, NewResponder, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(GET_DROP_RESPONDER_MSG, DropResponder, func(params ...interface{}) bool {
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 		return true
 	})
 	// configure Disconnected
 	sc = sm.Configure(Disconnected)
-	sc.PermitReentryIf(SEND_DISCONNECTED_MSG, func(params ...interface{}) bool {
+	sc.PermitReentryIf(SendDisconnectedMsg, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_SEND_ERROR_MSG, SendError, func(params ...interface{}) bool {
+	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_NEW_INITIATOR_MSG, NewInitiator, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(SEND_NEW_RESPONDER_MSG, NewResponder, func(params ...interface{}) bool {
+	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
 		return true
 	})
-	sc.PermitIf(GET_DROP_RESPONDER_MSG, DropResponder, func(params ...interface{}) bool {
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 		return true
 	})
 }
