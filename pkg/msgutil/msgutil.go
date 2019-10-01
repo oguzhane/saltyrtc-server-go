@@ -65,8 +65,13 @@ func IsValidYourKey(yourKey interface{}) bool {
 	return naclutil.IsValidBoxPkBytes(yourKey)
 }
 
-func ParseYourKey(yourKey interface{}) ([]byte, error) {
-	return naclutil.ConvertBoxPkToBytes(yourKey)
+func ParseYourKey(yourKey interface{}) ([base.KeyBytesSize]byte, error) {
+	yourKeyBytes, err := naclutil.ConvertBoxPkToBytes(yourKey)
+	if err != nil {
+		var tmpArr [base.KeyBytesSize]byte
+		return tmpArr, err
+	}
+	return naclutil.CreateBoxPkFromBytes(yourKeyBytes)
 }
 
 func IsValidAddressId(id interface{}) bool {

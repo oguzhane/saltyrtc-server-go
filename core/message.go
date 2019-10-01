@@ -68,7 +68,20 @@ func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	return data.Bytes(), nil
 }
 
-func Unpack(client *Client, data []byte) (BaseMessage, error) {
+func checkAllKeysExists(data *map[string]interface{}, correlationName string, keys ...string) error {
+	for _, key := range keys {
+		_, ok := (*data)[key]
+		if !ok {
+			return fmt.Errorf("%s doesnt exist for %s", key, correlationName)
+		}
+	}
+	return nil
+}
+
+func Unpack(client *Client, data []byte) (message BaseMessage, resultError error) {
+	deferWithGuard := base.NewEvalWithGuard(func() bool { return resultError == nil })
+	defer deferWithGuard.Eval()
+
 	if len(data) < base.DataLengthMin {
 		return nil, errors.New("Message is too short")
 	}
@@ -91,9 +104,13 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, source))
 	}
 
+	var chkUpSetCookieIn *base.CheckUp
 	// Validate cookie
-	if isToServer && client.SetCookieIn(cookie) != nil {
-		return nil, errors.New(fmt.Sprintf("Invalid cookie: 0x%x", cookie))
+	if isToServer {
+		if chkUpSetCookieIn = client.CheckAndSetCookieIn(cookie); chkUpSetCookieIn.Err != nil {
+			return nil, fmt.Errorf("Invalid cookie: 0x%x", cookie)
+		}
+		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { chkUpSetCookieIn.Eval(); return *prevGuard })
 	}
 
 	// validate and increase csn
@@ -115,7 +132,10 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 				return nil, errors.New("Received sequence number doesn't match with expected one")
 			}
 		}
-		client.CombinedSequenceNumberIn.Increment()
+		deferWithGuard.Push(func(prevGuard *func() bool) func() bool {
+			client.CombinedSequenceNumberIn.Increment()
+			return *prevGuard
+		})
 	}
 	var payload map[string]interface{}
 	if destType == base.Server {
@@ -127,7 +147,7 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 		}
 		payload, err = decodePayload(decodeData)
 		if err != nil {
-			return nil, errors.New("Payload cannot be decoded")
+			return nil, errors.New("Payload could not be decoded")
 		}
 		_type, ok := payload["type"]
 		if !ok {
@@ -136,63 +156,81 @@ func Unpack(client *Client, data []byte) (BaseMessage, error) {
 
 		switch _type {
 		case "server-hello":
+			// check keys
+			if err := checkAllKeysExists(&payload, "server-hello", "key"); err != nil {
+				return nil, err
+			}
+
 			keyVal, _ := payload["key"]
 			if serverPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
 				return NewServerHelloMessage(source, dest, serverPk), nil
 			}
 			return nil, errors.New("server-hello#key is invalid")
 		case "client-hello":
+			// check keys
+			if err := checkAllKeysExists(&payload, "client-hello", "key"); err != nil {
+				return nil, err
+			}
+
 			keyVal, _ := payload["key"]
 			if clientPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
 				return NewClientHelloMessage(source, dest, clientPk), nil
 			}
 			return nil, errors.New("client-hello#key is invalid")
 		case "client-auth":
-			yourCookieVal, ok := payload["your_cookie"]
-			if !ok {
-				return nil, errors.New("client-auth#your_cookie cannot be found")
+			// check keys
+			if err := checkAllKeysExists(&payload, "client-auth", "your_cookie", "subprotocols", "ping_interval", "your_key"); err != nil {
+				return nil, err
 			}
+
+			// your_cookie
+			yourCookieVal, _ := payload["your_cookie"]
 			yourCookie, err := msgutil.ParseYourCookie(yourCookieVal)
 			if err != nil {
 				return nil, errors.New("client-auth#your_cookie is invalid")
 			}
 
-			subprotocolsVal, ok := payload["subprotocols"]
-			var subprotocols []string
-			if ok {
-				subprotocols, err = msgutil.ParseSubprotocols(subprotocolsVal)
-				if err != nil {
-					return nil, errors.New("client-auth#subprotocols is invalid")
-				}
+			// subprotocols
+			subprotocolsVal, _ := payload["subprotocols"]
+			subprotocols, err := msgutil.ParseSubprotocols(subprotocolsVal)
+			if err != nil {
+				return nil, errors.New("client-auth#subprotocols is invalid")
 			}
 
-			pingIntervalVal, ok := payload["ping_interval"]
-			var pingInterval int
-			if ok {
-				pingInterval, err = msgutil.ParsePingInterval(pingIntervalVal)
-				if err != nil {
-					return nil, errors.New("client-auth#ping_interval is invalid")
-				}
+			// ping_interval
+			pingIntervalVal, _ := payload["ping_interval"]
+			pingInterval, err := msgutil.ParsePingInterval(pingIntervalVal)
+			if err != nil {
+				return nil, errors.New("client-auth#ping_interval is invalid")
 			}
 
-			yourKeyVal, ok := payload["your_key"]
-			var yourKey []byte
-			if ok {
-				yourKey, err = msgutil.ParseYourKey(yourKeyVal)
-				if err != nil {
-					return nil, errors.New("client-auth#your_key is invalid")
-				}
+			// your_key
+			yourKeyVal, _ := payload["your_key"]
+			yourKey, err := msgutil.ParseYourKey(yourKeyVal)
+			if err != nil {
+				return nil, errors.New("client-auth#your_key is invalid")
 			}
+
 			return NewClientAuthMessage(source, dest, yourCookie, subprotocols, uint32(pingInterval), yourKey), nil
 		case "new-initiator":
 			return NewNewInitiatorMessage(source, dest), nil
 		case "new-responder":
+			// check keys
+			if err := checkAllKeysExists(&payload, "new-responder", "id"); err != nil {
+				return nil, err
+			}
+
 			id, err := msgutil.ParseAddressId(payload["id"])
 			if err != nil {
 				return nil, errors.New("new-responder#id is invalid")
 			}
 			return NewNewResponderMessage(source, dest, id), nil
 		case "drop-responder":
+			// check keys
+			if err := checkAllKeysExists(&payload, "drop-responder", "id"); err != nil {
+				return nil, err
+			}
+
 			id, err := msgutil.ParseAddressId(payload["id"])
 			if err != nil {
 				return nil, errors.New("drop-responder#id is invalid")
@@ -425,11 +463,11 @@ type ClientAuthMessage struct {
 	serverCookie []byte
 	subprotocols []string
 	pingInterval uint32
-	serverKey    []byte
+	serverKey    [base.KeyBytesSize]byte
 }
 
 func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCookie []byte,
-	subprotocols []string, pingInterval uint32, serverKey []byte) *ClientAuthMessage {
+	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte) *ClientAuthMessage {
 	return &ClientAuthMessage{
 		baseMessage: baseMessage{
 			src:  src,
@@ -453,9 +491,7 @@ func (m *ClientAuthMessage) Pack(client *Client) ([]byte, error) {
 			"subprotocols":  m.subprotocols,
 			"ping_interval": m.pingInterval,
 		}
-		if m.serverKey != nil {
-			payload["your_key"] = m.serverKey
-		}
+		payload["your_key"] = m.serverKey
 		encodedPayload, err := encodePayload(payload)
 		if err != nil {
 			return nil, err

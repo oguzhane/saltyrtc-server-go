@@ -24,3 +24,12 @@ func ConvertBoxPkToBytes(pk interface{}) ([]byte, error) {
 	b, _ := pk.([]byte)
 	return b, nil
 }
+
+func CreateBoxPkFromBytes(pk []byte) ([base.KeyBytesSize]byte, error) {
+	var pkArr [base.KeyBytesSize]byte
+	if !IsValidBoxPkBytes(pk) {
+		return pkArr, errors.New("invalid BoxPk")
+	}
+	copy(pkArr[:], pk[:base.KeyBytesSize])
+	return pkArr, nil
+}
