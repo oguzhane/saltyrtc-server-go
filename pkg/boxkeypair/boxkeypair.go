@@ -1,6 +1,7 @@
 package boxkeypair
 
 import (
+	"bytes"
 	"crypto/rand"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
@@ -18,6 +19,22 @@ func NewBoxKeyPair(pk [base.KeyBytesSize]byte, sk [base.KeyBytesSize]byte) *BoxK
 		Sk: sk,
 	}
 }
+
+func (box *BoxKeyPair) PkEqualTo(target [base.KeyBytesSize]byte) bool {
+	return bytes.Equal(box.Pk[:], target[:])
+}
+
+func (box *BoxKeyPair) SkEqualTo(target [base.KeyBytesSize]byte) bool {
+	return bytes.Equal(box.Sk[:], target[:])
+}
+
+func (box *BoxKeyPair) Clone() *BoxKeyPair {
+	return &BoxKeyPair{
+		Pk: box.Pk,
+		Sk: box.Sk,
+	}
+}
+
 func GenerateBoxKeyPair() (*BoxKeyPair, error) {
 	pk, sk, err := box.GenerateKey(rand.Reader)
 	if err != nil {

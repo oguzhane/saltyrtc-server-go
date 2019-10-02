@@ -24,10 +24,11 @@ const (
 
 // Server handles clients
 type Server struct {
-	paths        *Paths
-	jobQueue     chan gopool.Job
-	subprotocols []string
-	subprotocol  string
+	paths          *Paths
+	jobQueue       chan gopool.Job
+	subprotocols   []string
+	subprotocol    string
+	permanentBoxes []*boxkeypair.BoxKeyPair
 }
 
 // NewServer creates new server instance
