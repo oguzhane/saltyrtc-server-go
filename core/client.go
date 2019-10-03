@@ -78,25 +78,9 @@ type Client struct {
 	Server        *Server
 }
 
-func (c *Client) Init() {
-	sm := statmach.New(ClientConnected)
-	c.machine = sm
-	sc := sm.Configure(ClientConnected)
-	// ClientConnected->ServerHello
-	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-
-		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-		err := c.Send(msg)
-		if err != nil {
-			bag.err = err
-			return false
-		}
-		return true
-	})
-
+func (c *Client) configureServerHello() {
 	// configure ServerHello
-	sc = sm.Configure(ServerHello)
+	sc := c.machine.Configure(ServerHello)
 	// ServerHello->ClientHello
 	sc.PermitIf(GetClientHelloMsg, ClientHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -149,9 +133,11 @@ func (c *Client) Init() {
 
 		return true
 	})
+}
 
+func (c *Client) configureClientHello() {
 	// configure ClientHello
-	sc = sm.Configure(ClientHello)
+	sc := c.machine.Configure(ClientHello)
 	// ClientHello->ClientAuth transition states the method below for responder handshake
 	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -185,9 +171,11 @@ func (c *Client) Init() {
 
 		return true
 	})
+}
 
+func (c *Client) configureClientAuth() {
 	// configure ClientAuth
-	sc = sm.Configure(ClientAuth)
+	sc := c.machine.Configure(ClientAuth)
 	// ClientAuth->ServerAuth
 	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -218,9 +206,11 @@ func (c *Client) Init() {
 		}
 		return true
 	})
+}
 
+func (c *Client) configureServerAuth() {
 	// configure ServerAuth
-	sc = sm.Configure(ServerAuth)
+	sc := c.machine.Configure(ServerAuth)
 	// ServerAuth->NewInitiator
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 
@@ -242,16 +232,23 @@ func (c *Client) Init() {
 
 		return true
 	})
+}
 
+func (c *Client) configureNewResponder() {
 	// configure NewResponder
-	sc = sm.Configure(NewResponder)
+	sc := c.machine.Configure(NewResponder)
 	sc.SubstateOf(InitiatorSuperState)
-	// configure DropResponder
-	sc = sm.Configure(DropResponder)
-	sc.SubstateOf(InitiatorSuperState)
+}
 
+func (c *Client) configureDropResponder() {
+	// configure DropResponder
+	sc := c.machine.Configure(DropResponder)
+	sc.SubstateOf(InitiatorSuperState)
+}
+
+func (c *Client) configureInitiatorSuperState() {
 	// configure InitiatorSuperState
-	sc = sm.Configure(InitiatorSuperState)
+	sc := c.machine.Configure(InitiatorSuperState)
 	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
 		return true
 	})
@@ -265,9 +262,11 @@ func (c *Client) Init() {
 	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 		return true
 	})
+}
 
+func (c *Client) configureNewInitiator() {
 	// configure NewInitiator
-	sc = sm.Configure(NewInitiator)
+	sc := c.machine.Configure(NewInitiator)
 	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
 
 		return true
@@ -280,9 +279,11 @@ func (c *Client) Init() {
 
 		return true
 	})
+}
 
+func (c *Client) configureSendError() {
 	// configure SendError
-	sc = sm.Configure(SendError)
+	sc := c.machine.Configure(SendError)
 	sc.PermitReentryIf(SendSendErrorMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -298,8 +299,11 @@ func (c *Client) Init() {
 	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 		return true
 	})
+}
+
+func (c *Client) configureDisconnected() {
 	// configure Disconnected
-	sc = sm.Configure(Disconnected)
+	sc := c.machine.Configure(Disconnected)
 	sc.PermitReentryIf(SendDisconnectedMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -315,6 +319,44 @@ func (c *Client) Init() {
 	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 		return true
 	})
+}
+
+func (c *Client) Init() {
+	sm := statmach.New(ClientConnected)
+	c.machine = sm
+	sc := sm.Configure(ClientConnected)
+	// ClientConnected->ServerHello
+	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
+		bag, _ := params[0].(*CallbackBag)
+
+		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
+		err := c.Send(msg)
+		if err != nil {
+			bag.err = err
+			return false
+		}
+		return true
+	})
+
+	c.configureServerHello()
+
+	c.configureClientHello()
+
+	c.configureClientAuth()
+
+	c.configureServerAuth()
+
+	c.configureNewResponder()
+
+	c.configureDropResponder()
+
+	c.configureInitiatorSuperState()
+
+	c.configureNewInitiator()
+
+	c.configureSendError()
+
+	c.configureDisconnected()
 }
 
 // todo: implement it properly
