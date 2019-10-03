@@ -2,12 +2,14 @@ package core
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 )
 
 // Path is responsible for web socket connection path for responder and initiators
 type Path struct {
+	mux          sync.Mutex
 	initiatorKey string
 	number       uint32
 	slots        map[base.AddressType]*Client
@@ -69,4 +71,16 @@ func (p *Path) RemoveClientByID(id base.AddressType) (*Client, error) {
 	}
 	delete(p.slots, id)
 	return client, nil
+}
+
+func (p *Path) GetResponderIds() []uint8 {
+	ids := make([]uint8, 0)
+	var responderID base.AddressType = 0x02
+	for ; responderID <= base.Responder; responderID = responderID + 0x01 {
+		_, ok := p.slots[responderID]
+		if ok {
+			ids = append(ids, responderID)
+		}
+	}
+	return ids
 }
