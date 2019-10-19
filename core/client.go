@@ -130,7 +130,7 @@ func (c *Client) configureServerHello() {
 			bag.err = errors.New("yourKey matches none of the server permanent key pairs")
 			return false
 		}
-
+		c.SetType(base.Initiator)
 		return true
 	})
 }
@@ -182,28 +182,31 @@ func (c *Client) configureClientAuth() {
 		var msg *ServerAuthMessage
 
 		c.Path.mux.Lock()
+		defer c.Path.mux.Unlock()
+		var chkUp *base.CheckUp
 		if clientType, _ := c.GetType(); clientType == base.Initiator {
 			if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
 				// todo: kill prevClient
 			}
-			c.Path.SetInitiator(c)
-			msg = NewServerAuthMessageForInitiator(base.Server, c.Id, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, c.Path.GetResponderIds())
+			chkUp = c.Path.CheckAndSetInitiator(c)
+			msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, c.Path.GetResponderIds())
 		} else {
-			if _, err := c.Path.AddResponder(c); err != nil { // responder
-				defer c.Path.mux.Unlock()
+			var responderID uint8
+			if chkUp, responderID = c.Path.CheckAndAddResponder(c); chkUp.Err != nil { // responder
 				bag.err = errors.New("Path Full")
 				return false
 			}
 			_, initiatorConnected := c.Path.GetInitiator()
-			msg = NewServerAuthMessageForResponder(base.Server, c.Id, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
+			msg = NewServerAuthMessageForResponder(base.Server, responderID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
 		}
-		c.Path.mux.Unlock()
 
 		err := c.Send(msg)
 		if err != nil {
 			bag.err = err
 			return false
 		}
+		c.Authenticated = true
+		chkUp.Eval()
 		return true
 	})
 }
@@ -211,11 +214,53 @@ func (c *Client) configureClientAuth() {
 func (c *Client) configureServerAuth() {
 	// configure ServerAuth
 	sc := c.machine.Configure(ServerAuth)
-	// ServerAuth->NewInitiator
+	// ServerAuth->NewInitiator(Responder)
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
+		bag, _ := params[0].(*CallbackBag)
 
+		if initiator, ok := c.Path.GetInitiator(); !ok || initiator.Id == c.Id {
+			bag.err = errors.New("no initiator")
+			return false
+		}
+		msg := NewNewInitiatorMessage(base.Server, c.Id)
+		err := c.Send(msg)
+		if err != nil {
+			bag.err = err
+			return false
+		}
 		return true
 	})
+
+	// ServerAuth->NewResponder(Initiator)
+	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
+		bag, _ := params[0].(*CallbackBag)
+		responderID, _ := params[1].(base.AddressType)
+		if responderID <= base.Initiator {
+			bag.err = errors.New("invalid responder")
+			return false
+		}
+		responder, err := c.Path.FindClientByID(responderID)
+		if err != nil || !responder.Authenticated {
+			bag.err = errors.New("responder doesnt exist on the path")
+			return false
+		}
+		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
+		err = c.Send(msg)
+		if err != nil {
+			bag.err = err
+			return false
+		}
+		return true
+	})
+
+	// ServerAuth->DropResponder(Initiator)
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
+		// bag, _ := params[0].(*CallbackBag)
+		// dropResponderMsg, _ := params[1].(*DropResponderMessage)
+		// todo close conn
+		return true
+	})
+
 	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
 
 		return true
@@ -224,14 +269,7 @@ func (c *Client) configureServerAuth() {
 
 		return true
 	})
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 
-		return true
-	})
-	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
-
-		return true
-	})
 }
 
 func (c *Client) configureNewResponder() {
@@ -246,29 +284,10 @@ func (c *Client) configureDropResponder() {
 	sc.SubstateOf(InitiatorSuperState)
 }
 
-func (c *Client) configureInitiatorSuperState() {
-	// configure InitiatorSuperState
-	sc := c.machine.Configure(InitiatorSuperState)
-	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
-
-		return true
-	})
-	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
-		return true
-	})
-}
-
 func (c *Client) configureNewInitiator() {
 	// configure NewInitiator
 	sc := c.machine.Configure(NewInitiator)
 	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
-
 		return true
 	})
 	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
@@ -317,6 +336,21 @@ func (c *Client) configureDisconnected() {
 		return true
 	})
 	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
+		return true
+	})
+}
+
+func (c *Client) configureInitiatorSuperState() {
+	// configure InitiatorSuperState
+	sc := c.machine.Configure(InitiatorSuperState)
+	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
+
+		return true
+	})
+	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
+		return true
+	})
+	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
 		return true
 	})
 }

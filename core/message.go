@@ -232,7 +232,7 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 			}
 
 			id, err := msgutil.ParseAddressId(payload["id"])
-			if err != nil {
+			if err != nil || id <= base.Initiator {
 				return nil, errors.New("drop-responder#id is invalid")
 			}
 			reasonVal, ok := payload["reason"]

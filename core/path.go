@@ -29,11 +29,11 @@ func (p *Path) InitiatorKey() string {
 	return p.initiatorKey
 }
 
-// SetInitiator sets initiator *Client instance
-func (p *Path) SetInitiator(initiator *Client) error {
-
-	p.slots[base.Initiator] = initiator
-	return nil
+// CheckAndSetInitiator sets initiator *Client instance
+func (p *Path) CheckAndSetInitiator(initiator *Client) *base.CheckUp {
+	chkUp := base.NewCheckUp()
+	chkUp.Push(func() error { p.slots[base.Initiator] = initiator; initiator.Id = base.Initiator; return nil })
+	return chkUp
 }
 
 // GetInitiator returns *Client initiator instance and its existence
@@ -42,24 +42,24 @@ func (p *Path) GetInitiator() (*Client, bool) {
 	return val, ok
 }
 
-// AddResponder add responder to slots on path
+// CheckAndAddResponder checks and add responder to slots on path
 // returns ResponderID and error
-func (p *Path) AddResponder(responder *Client) (base.AddressType, error) {
+func (p *Path) CheckAndAddResponder(responder *Client) (*base.CheckUp, base.AddressType) {
+	chkUp := base.NewCheckUp()
 	if responder == nil {
-		return base.Server, base.NewValueError("Responder cannot be nil")
+		chkUp.SetErr(base.NewValueError("Responder cannot be nil"))
+		return chkUp, base.Server
 	}
 	var responderID base.AddressType = 0x02
 	for ; responderID <= base.Responder; responderID = responderID + 0x01 {
 		_, prs := p.slots[responderID]
 		if !prs {
-			p.slots[responderID] = responder
-			break
+			chkUp.Push(func() error { p.slots[responderID] = responder; responder.Id = responderID; return nil })
+			return chkUp, responderID
 		}
 	}
-	if responderID > base.Responder {
-		return base.Server, base.NewSlotsFullError("No free slot on path")
-	}
-	return responderID, nil
+	chkUp.SetErr(base.NewSlotsFullError("No free slot on path"))
+	return chkUp, base.Server
 }
 
 // RemoveClientByID removes client from slots by id
@@ -83,4 +83,13 @@ func (p *Path) GetResponderIds() []uint8 {
 		}
 	}
 	return ids
+}
+
+// FindClientByID finds client by id
+func (p *Path) FindClientByID(id base.AddressType) (*Client, error) {
+	client, prs := p.slots[id]
+	if !prs {
+		return nil, base.NewValueError(fmt.Sprintf("Invalid slot id:0x%x", id))
+	}
+	return client, nil
 }
