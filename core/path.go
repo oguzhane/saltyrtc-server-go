@@ -12,7 +12,34 @@ type Path struct {
 	mux          sync.Mutex
 	initiatorKey string
 	number       uint32
-	slots        map[base.AddressType]*Client
+	slots        map[base.AddressType]interface{}
+}
+
+type SlotWrapper struct {
+	client         *Client
+	allocatedIndex base.AddressType
+	path           *Path
+}
+
+func NewSlotWrapper(client *Client, path *Path, allocatedIndex uint8) *SlotWrapper {
+	return &SlotWrapper{
+		client:         client,
+		allocatedIndex: allocatedIndex,
+		path:           path,
+	}
+}
+
+func (s *SlotWrapper) Commit() {
+	s.path.mux.Lock()
+	defer s.path.mux.Unlock()
+
+	s.path.slots[s.allocatedIndex] = s.client
+}
+
+func (s *SlotWrapper) Abort() {
+	s.path.mux.Lock()
+	defer s.path.mux.Unlock()
+	s.path.slots[s.allocatedIndex] = nil
 }
 
 // NewPath function creates Path instance
@@ -20,7 +47,7 @@ func NewPath(initiatorKey string, number uint32) *Path {
 	return &Path{
 		initiatorKey: initiatorKey,
 		number:       number,
-		slots:        make(map[base.AddressType]*Client),
+		slots:        make(map[base.AddressType]interface{}),
 	}
 }
 
@@ -29,41 +56,49 @@ func (p *Path) InitiatorKey() string {
 	return p.initiatorKey
 }
 
-// CheckAndSetInitiator sets initiator *Client instance
-func (p *Path) CheckAndSetInitiator(initiator *Client) *base.CheckUp {
-	chkUp := base.NewCheckUp()
-	chkUp.Push(func() error { p.slots[base.Initiator] = initiator; initiator.Id = base.Initiator; return nil })
-	return chkUp
+// SetInitiator sets initiator *Client instance
+func (p *Path) SetInitiator(initiator *Client) *SlotWrapper {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	wrapper := NewSlotWrapper(initiator, p, base.Initiator)
+	p.slots[base.Initiator] = wrapper
+	return wrapper
 }
 
 // GetInitiator returns *Client initiator instance and its existence
-func (p *Path) GetInitiator() (*Client, bool) {
+func (p *Path) GetInitiator() (interface{}, bool) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
 	val, ok := p.slots[base.Initiator]
 	return val, ok
 }
 
-// CheckAndAddResponder checks and add responder to slots on path
+// AddResponder adds responder to slots on path
 // returns ResponderID and error
-func (p *Path) CheckAndAddResponder(responder *Client) (*base.CheckUp, base.AddressType) {
-	chkUp := base.NewCheckUp()
+func (p *Path) AddResponder(responder *Client) (*SlotWrapper, error) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
 	if responder == nil {
-		chkUp.SetErr(base.NewValueError("Responder cannot be nil"))
-		return chkUp, base.Server
+		return nil, base.NewValueError("Responder cannot be nil")
 	}
 	var responderID base.AddressType = 0x02
 	for ; responderID <= base.Responder; responderID = responderID + 0x01 {
 		_, prs := p.slots[responderID]
 		if !prs {
-			chkUp.Push(func() error { p.slots[responderID] = responder; responder.Id = responderID; return nil })
-			return chkUp, responderID
+			wrapper := NewSlotWrapper(responder, p, responderID)
+			p.slots[responderID] = wrapper
+			return wrapper, nil
 		}
 	}
-	chkUp.SetErr(base.NewSlotsFullError("No free slot on path"))
-	return chkUp, base.Server
+	return nil, base.NewSlotsFullError("No free slot on path")
 }
 
 // RemoveClientByID removes client from slots by id
-func (p *Path) RemoveClientByID(id base.AddressType) (*Client, error) {
+func (p *Path) RemoveClientByID(id base.AddressType) (interface{}, error) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
 	client, prs := p.slots[id]
 
 	if !prs {
@@ -73,12 +108,15 @@ func (p *Path) RemoveClientByID(id base.AddressType) (*Client, error) {
 	return client, nil
 }
 
+// GetResponderIds gets settled responders
 func (p *Path) GetResponderIds() []uint8 {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
 	ids := make([]uint8, 0)
 	var responderID base.AddressType = 0x02
 	for ; responderID <= base.Responder; responderID = responderID + 0x01 {
-		_, ok := p.slots[responderID]
-		if ok {
+		if _, ok := p.slots[responderID].(*Client); ok {
 			ids = append(ids, responderID)
 		}
 	}
@@ -86,7 +124,10 @@ func (p *Path) GetResponderIds() []uint8 {
 }
 
 // FindClientByID finds client by id
-func (p *Path) FindClientByID(id base.AddressType) (*Client, error) {
+func (p *Path) FindClientByID(id base.AddressType) (interface{}, error) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
 	client, prs := p.slots[id]
 	if !prs {
 		return nil, base.NewValueError(fmt.Sprintf("Invalid slot id:0x%x", id))

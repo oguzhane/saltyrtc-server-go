@@ -180,24 +180,23 @@ func (c *Client) configureClientAuth() {
 	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
 		var msg *ServerAuthMessage
+		var slotWrapper *SlotWrapper
 
-		c.Path.mux.Lock()
-		defer c.Path.mux.Unlock()
-		var chkUp *base.CheckUp
 		if clientType, _ := c.GetType(); clientType == base.Initiator {
 			if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
 				// todo: kill prevClient
 			}
-			chkUp = c.Path.CheckAndSetInitiator(c)
+			slotWrapper = c.Path.SetInitiator(c)
 			msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, c.Path.GetResponderIds())
 		} else {
-			var responderID uint8
-			if chkUp, responderID = c.Path.CheckAndAddResponder(c); chkUp.Err != nil { // responder
+			var err error
+			slotWrapper, err = c.Path.AddResponder(c)
+			if err != nil { // responder
 				bag.err = errors.New("Path Full")
 				return false
 			}
 			_, initiatorConnected := c.Path.GetInitiator()
-			msg = NewServerAuthMessageForResponder(base.Server, responderID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
+			msg = NewServerAuthMessageForResponder(base.Server, slotWrapper.allocatedIndex, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
 		}
 
 		err := c.Send(msg)
@@ -206,7 +205,7 @@ func (c *Client) configureClientAuth() {
 			return false
 		}
 		c.Authenticated = true
-		chkUp.Eval()
+		slotWrapper.Commit()
 		return true
 	})
 }
@@ -239,8 +238,8 @@ func (c *Client) configureServerAuth() {
 			bag.err = errors.New("invalid responder")
 			return false
 		}
-		responder, err := c.Path.FindClientByID(responderID)
-		if err != nil || !responder.Authenticated {
+		slot, err := c.Path.FindClientByID(responderID)
+		if responder := slot.(*Client); err != nil || responder == nil || !responder.Authenticated {
 			bag.err = errors.New("responder doesnt exist on the path")
 			return false
 		}
