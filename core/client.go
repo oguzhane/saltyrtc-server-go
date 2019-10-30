@@ -182,6 +182,12 @@ func (c *Client) configureClientAuth() {
 		var msg *ServerAuthMessage
 		var slotWrapper *SlotWrapper
 
+		defer func() {
+			if slotWrapper != nil && !slotWrapper.committed {
+				slotWrapper.Abort()
+			}
+		}()
+
 		if clientType, _ := c.GetType(); clientType == base.Initiator {
 			if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
 				// todo: kill prevClient
@@ -216,8 +222,8 @@ func (c *Client) configureServerAuth() {
 	// ServerAuth->NewInitiator(Responder)
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
-
-		if initiator, ok := c.Path.GetInitiator(); !ok || initiator.Id == c.Id {
+		slot, ok := c.Path.GetInitiator()
+		if initiator := slot.(*Client); !ok || initiator == nil || initiator.Id == c.Id {
 			bag.err = errors.New("no initiator")
 			return false
 		}

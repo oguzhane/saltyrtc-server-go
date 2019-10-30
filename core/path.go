@@ -19,6 +19,7 @@ type SlotWrapper struct {
 	client         *Client
 	allocatedIndex base.AddressType
 	path           *Path
+	committed      bool
 }
 
 func NewSlotWrapper(client *Client, path *Path, allocatedIndex uint8) *SlotWrapper {
@@ -34,6 +35,7 @@ func (s *SlotWrapper) Commit() {
 	defer s.path.mux.Unlock()
 
 	s.path.slots[s.allocatedIndex] = s.client
+	s.committed = true
 }
 
 func (s *SlotWrapper) Abort() {

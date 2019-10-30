@@ -305,10 +305,6 @@ type BaseMessagePacker interface {
 }
 
 type BaseMessage interface {
-	GetSource() base.AddressType
-	SetSource(src base.AddressType)
-	GetDestination() base.AddressType
-	SetDestination(dst base.AddressType)
 	GetSourceType() base.AddressType
 	GetDestinationType() base.AddressType
 }
@@ -342,18 +338,6 @@ func (m *RawMessage) Pack(client *Client) ([]byte, error) {
 	return m.data, nil
 }
 
-func (m *RawMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *RawMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *RawMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *RawMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *RawMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -389,18 +373,6 @@ func (m *ServerHelloMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *ServerHelloMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *ServerHelloMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *ServerHelloMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *ServerHelloMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *ServerHelloMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -436,18 +408,6 @@ func (m *ClientHelloMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *ClientHelloMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *ClientHelloMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *ClientHelloMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *ClientHelloMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *ClientHelloMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -505,18 +465,6 @@ func (m *ClientAuthMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *ClientAuthMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *ClientAuthMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *ClientAuthMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *ClientAuthMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *ClientAuthMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -595,18 +543,6 @@ func (m *ServerAuthMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *ServerAuthMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *ServerAuthMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *ServerAuthMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *ServerAuthMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *ServerAuthMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -651,18 +587,6 @@ func (m *NewInitiatorMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *NewInitiatorMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *NewInitiatorMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *NewInitiatorMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *NewInitiatorMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *NewInitiatorMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -710,18 +634,6 @@ func (m *NewResponderMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *NewResponderMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *NewResponderMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *NewResponderMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *NewResponderMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *NewResponderMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -776,18 +688,6 @@ func (m *DropResponderMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *DropResponderMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *DropResponderMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *DropResponderMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *DropResponderMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *DropResponderMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -835,18 +735,6 @@ func (m *SendErrorMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *SendErrorMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *SendErrorMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *SendErrorMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *SendErrorMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *SendErrorMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
@@ -894,18 +782,6 @@ func (m *DisconnectedMessage) Pack(client *Client) ([]byte, error) {
 	})
 }
 
-func (m *DisconnectedMessage) GetSource() base.AddressType {
-	return m.src
-}
-func (m *DisconnectedMessage) SetSource(src base.AddressType) {
-	m.src = src
-}
-func (m *DisconnectedMessage) GetDestination() base.AddressType {
-	return m.dest
-}
-func (m *DisconnectedMessage) SetDestination(dst base.AddressType) {
-	m.dest = dst
-}
 func (m *DisconnectedMessage) GetSourceType() base.AddressType {
 	return base.GetAddressTypeFromaAddr(m.src)
 }
