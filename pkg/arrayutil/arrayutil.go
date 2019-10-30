@@ -2,7 +2,7 @@ package arrayutil
 
 func IntersectionStr(a, b []string) (c []string) {
 	m := make(map[string]bool)
-
+	c = []string{}
 	for _, item := range a {
 		m[item] = true
 	}
