@@ -8,7 +8,7 @@ const (
 	Responder AddressType = 0xff
 )
 
-func GetAddressTypeFromaAddr(addr AddressType) AddressType {
+func GetAddressTypeFromAddr(addr AddressType) AddressType {
 	if addr > 0x01 {
 		return Responder
 	}
