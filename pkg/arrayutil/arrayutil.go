@@ -1,5 +1,6 @@
 package arrayutil
 
+// IntersectionStr finds the same strings in two array
 func IntersectionStr(a, b []string) (c []string) {
 	m := make(map[string]bool)
 	c = []string{}
