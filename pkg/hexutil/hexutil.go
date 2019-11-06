@@ -31,6 +31,9 @@ func IsValidHexPathString(pathStr string) error {
 
 // IsValidHexString validates s
 func IsValidHexString(s string) error {
+	if len(s)%2 == 1 {
+		return errors.New("odd length hex string")
+	}
 	for _, c := range s {
 		isValid := (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102)
 		if !isValid {
