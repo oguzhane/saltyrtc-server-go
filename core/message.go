@@ -15,12 +15,49 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
+type PayloadFieldError struct {
+	Type  string
+	Field string
+	Err   error
+}
+
+func NewPayloadFieldError(payloadType string, field string, err error) *PayloadFieldError {
+	return &PayloadFieldError{
+		Type:  payloadType,
+		Field: field,
+		Err:   err,
+	}
+}
+
+func (e *PayloadFieldError) Error() string {
+	return e.Type + "." + e.Field + ": " + e.Err.Error()
+}
+
+var (
+	// ErrNotAllowedMessage occurs when you are trying to relay a message to invalid dest
+	ErrNotAllowedMessage = errors.New("not allowed message")
+	// ErrNotMatchedIdentities occurs when you identities dont match for two different source
+	ErrNotMatchedIdentities = errors.New("identities dont match")
+	// ErrNotAuthenticatedClient occurs when you are trying to encrypt message
+	ErrNotAuthenticatedClient = errors.New("client is not authenticated")
+	// ErrMessageTooShort occurs when the length of message less than expected
+	ErrMessageTooShort = errors.New("message is too short")
+	// ErrCantDecodePayload occurs when try to decode payload
+	ErrCantDecodePayload = errors.New("cant decode payload")
+	// ErrFieldNotExist occurs when a field should exist but it doesnt
+	ErrFieldNotExist = errors.New("field doesnt exist")
+	// ErrInvalidFieldValue occurs when fiel value is not valid
+	ErrInvalidFieldValue = errors.New("invalid field value")
+	// ErrCantDecryptPayload occurs when try to decrypt payload
+	ErrCantDecryptPayload = errors.New("cant decrypt payload")
+)
+
 type payloadPacker func(readNonce func() ([]byte, error)) ([]byte, error)
 
 func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	packPayload payloadPacker) ([]byte, error) {
 	if client.CombinedSequenceNumberOut.HasErrOverflowSentinel() {
-		return nil, base.NewMessageFlowError("Cannot send any more messages, due to a sequence number counter overflow")
+		return nil, base.NewMessageFlowError("Cannot send any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 	}
 
 	data := new(bytes.Buffer)
@@ -83,7 +120,7 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 	defer deferWithGuard.Eval()
 
 	if len(data) < base.DataLengthMin {
-		return nil, errors.New("Message is too short")
+		return nil, ErrMessageTooShort
 	}
 	nonce := data[:base.NonceLength]
 	cookie := nonce[:base.CookieLength]
@@ -96,12 +133,12 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 	// Validate destination
 	isToServer := destType == base.Server
 	if typeVal, typeHasVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", dest))
+		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", dest), ErrNotAllowedMessage)
 	}
 
 	// Validate source
 	if client.Id != source {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, source))
+		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, source), ErrNotMatchedIdentities)
 	}
 
 	var chkUpSetCookieIn *base.CheckUp
@@ -121,15 +158,15 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 		}
 		if client.CombinedSequenceNumberIn == nil {
 			if csn.GetOverflowNumber() != 0 {
-				return nil, errors.New("Invalid overflow number. It must be initialized with zero")
+				return nil, base.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
 			}
 			client.CombinedSequenceNumberIn = csn
 		} else {
 			if client.CombinedSequenceNumberIn.HasErrOverflowSentinel() {
-				return nil, base.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow")
+				return nil, base.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 			}
 			if !client.CombinedSequenceNumberIn.EqualsTo(csn) {
-				return nil, errors.New("Received sequence number doesn't match with expected one")
+				return nil, base.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
 			}
 		}
 		deferWithGuard.Push(func(prevGuard *func() bool) func() bool {
@@ -147,11 +184,11 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 		}
 		payload, err = decodePayload(decodeData)
 		if err != nil {
-			return nil, errors.New("Payload could not be decoded")
+			return nil, ErrCantDecodePayload
 		}
 		_type, ok := payload["type"]
 		if !ok {
-			return nil, errors.New("Payload doesn't have 'type' field")
+			return nil, NewPayloadFieldError("", "type", ErrFieldNotExist)
 		}
 
 		switch _type {
@@ -165,7 +202,7 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 			if serverPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
 				return NewServerHelloMessage(source, dest, serverPk), nil
 			}
-			return nil, errors.New("server-hello#key is invalid")
+			return nil, NewPayloadFieldError("server-hello", "key", err)
 		case "client-hello":
 			// check keys
 			if err := checkAllKeysExists(&payload, "client-hello", "key"); err != nil {
@@ -176,7 +213,7 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 			if clientPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
 				return NewClientHelloMessage(source, dest, clientPk), nil
 			}
-			return nil, errors.New("client-hello#key is invalid")
+			return nil, NewPayloadFieldError("client-hello", "key", err)
 		case "client-auth":
 			// check keys
 			if err := checkAllKeysExists(&payload, "client-auth", "your_cookie", "subprotocols", "ping_interval", "your_key"); err != nil {
@@ -187,28 +224,28 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 			yourCookieVal, _ := payload["your_cookie"]
 			yourCookie, err := msgutil.ParseYourCookie(yourCookieVal)
 			if err != nil {
-				return nil, errors.New("client-auth#your_cookie is invalid")
+				return nil, NewPayloadFieldError("client-auth", "your_cookie", err)
 			}
 
 			// subprotocols
 			subprotocolsVal, _ := payload["subprotocols"]
 			subprotocols, err := msgutil.ParseSubprotocols(subprotocolsVal)
 			if err != nil {
-				return nil, errors.New("client-auth#subprotocols is invalid")
+				return nil, NewPayloadFieldError("client-auth", "subprotocols", err)
 			}
 
 			// ping_interval
 			pingIntervalVal, _ := payload["ping_interval"]
 			pingInterval, err := msgutil.ParsePingInterval(pingIntervalVal)
 			if err != nil {
-				return nil, errors.New("client-auth#ping_interval is invalid")
+				return nil, NewPayloadFieldError("client-auth", "ping_interval", err)
 			}
 
 			// your_key
 			yourKeyVal, _ := payload["your_key"]
 			yourKey, err := msgutil.ParseYourKey(yourKeyVal)
 			if err != nil {
-				return nil, errors.New("client-auth#your_key is invalid")
+				return nil, NewPayloadFieldError("client-auth", "your_key", err)
 			}
 
 			return NewClientAuthMessage(source, dest, yourCookie, subprotocols, uint32(pingInterval), yourKey), nil
@@ -222,7 +259,7 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 
 			id, err := msgutil.ParseAddressId(payload["id"])
 			if err != nil {
-				return nil, errors.New("new-responder#id is invalid")
+				return nil, NewPayloadFieldError("new-responder", "id", err)
 			}
 			return NewNewResponderMessage(source, dest, id), nil
 		case "drop-responder":
@@ -233,19 +270,19 @@ func Unpack(client *Client, data []byte) (message BaseMessage, resultError error
 
 			id, err := msgutil.ParseAddressId(payload["id"])
 			if err != nil || id <= base.Initiator {
-				return nil, errors.New("drop-responder#id is invalid")
+				return nil, NewPayloadFieldError("drop-responder", "id", err)
 			}
 			reasonVal, ok := payload["reason"]
 			if ok {
 				reason, err := msgutil.ParseReasonCode(reasonVal)
 				if err != nil {
-					return nil, errors.New("drop-responder#reason is invalid")
+					return nil, NewPayloadFieldError("drop-responder", "reason", err)
 				}
 				return NewDropResponderMessageWithReason(source, dest, id, reason), nil
 			}
 			return NewDropResponderMessage(source, dest, id), nil
 		default:
-			return nil, errors.New("Payload doesn't have valid 'type' field")
+			return nil, NewPayloadFieldError(fmt.Sprintf("%v", _type), "type", ErrInvalidFieldValue)
 		}
 
 	} else {
@@ -286,7 +323,7 @@ func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
 	copy(nonceArr[:], nonce[:base.NonceLength])
 	decryptedData, ok := box.Open(nil, data, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk)
 	if !ok {
-		return nil, errors.New("Could not decrypt payload")
+		return nil, ErrCantDecryptPayload
 	}
 	return decryptedData, nil
 }
@@ -442,7 +479,7 @@ func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCoo
 
 func (m *ClientAuthMessage) Pack(client *Client) ([]byte, error) {
 	if !client.Authenticated {
-		return nil, base.NewMessageFlowError("Cannot encrypt payload")
+		return nil, base.NewMessageFlowError("Cannot encrypt payload", ErrNotAuthenticatedClient)
 	}
 	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
 		payload := map[string]interface{}{

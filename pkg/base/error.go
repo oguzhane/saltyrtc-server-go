@@ -1,13 +1,5 @@
 package base
 
-import (
-	"errors"
-)
-
-var (
-	ErrOverflowSentinel = errors.New("OverflowSentinel")
-)
-
 type SlotsFullError struct {
 	msg string
 }
@@ -51,15 +43,17 @@ func (e *PathError) Error() string {
 }
 
 type MessageFlowError struct {
-	msg string
+	Msg string
+	Err error
 }
 
-func NewMessageFlowError(message string) *MessageFlowError {
+func NewMessageFlowError(message string, err error) *MessageFlowError {
 	return &MessageFlowError{
-		msg: message,
+		Msg: message,
+		Err: err,
 	}
 }
 
 func (e *MessageFlowError) Error() string {
-	return e.msg
+	return e.Msg + ": " + e.Err.Error()
 }
