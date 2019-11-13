@@ -21,6 +21,7 @@ type PayloadFieldError struct {
 	Err   error
 }
 
+// NewPayloadFieldError creates PayloadFieldError instance
 func NewPayloadFieldError(payloadType string, field string, err error) *PayloadFieldError {
 	return &PayloadFieldError{
 		Type:  payloadType,
@@ -54,6 +55,7 @@ var (
 
 type payloadPacker func(readNonce func() ([]byte, error)) ([]byte, error)
 
+// Pack encodes message and returns bytes data
 func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	packPayload payloadPacker) ([]byte, error) {
 	if client.CombinedSequenceNumberOut.HasErrOverflowSentinel() {
@@ -109,12 +111,13 @@ func checkAllKeysExists(data *map[string]interface{}, correlationName string, ke
 	for _, key := range keys {
 		_, ok := (*data)[key]
 		if !ok {
-			return fmt.Errorf("%s doesnt exist for %s", key, correlationName)
+			return NewPayloadFieldError(correlationName, key, ErrFieldNotExist)
 		}
 	}
 	return nil
 }
 
+// Unpack decodes data and returns appropriate Message
 func Unpack(client *Client, data []byte) (message BaseMessage, resultError error) {
 	deferWithGuard := base.NewEvalWithGuard(func() bool { return resultError == nil })
 	defer deferWithGuard.Eval()
