@@ -15,6 +15,12 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
+type NonceReader func() ([]byte, error)
+
+type PayloadPacker interface {
+	Pack(client *Client, nonceReader NonceReader) ([]byte, error)
+}
+
 type PayloadFieldError struct {
 	Type  string
 	Field string
@@ -53,11 +59,9 @@ var (
 	ErrCantDecryptPayload = errors.New("cant decrypt payload")
 )
 
-type payloadPacker func(readNonce func() ([]byte, error)) ([]byte, error)
-
 // Pack encodes message and returns bytes data
 func Pack(client *Client, src base.AddressType, dest base.AddressType,
-	packPayload payloadPacker) ([]byte, error) {
+	payloadPacker PayloadPacker) ([]byte, error) {
 	if client.CombinedSequenceNumberOut.HasErrOverflowSentinel() {
 		return nil, base.NewMessageFlowError("Cannot send any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 	}
@@ -78,11 +82,11 @@ func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	// pack nonce //
 
 	// pack payload //
-	if packPayload != nil {
-		payload, err := packPayload(func() ([]byte, error) {
+	if payloadPacker != nil {
+		payload, err := payloadPacker.Pack(client, (func() ([]byte, error) {
 			err1 := dw.Flush()
 			return data.Bytes(), err1
-		})
+		}))
 		if err != nil {
 			dw.Flush()
 			return nil, err
@@ -118,7 +122,7 @@ func checkAllKeysExists(data *map[string]interface{}, correlationName string, ke
 }
 
 // Unpack decodes data and returns appropriate Message
-func Unpack(client *Client, data []byte) (message BaseMessage, resultError error) {
+func Unpack(client *Client, data []byte) (message interface{}, resultError error) {
 	deferWithGuard := base.NewEvalWithGuard(func() bool { return resultError == nil })
 	defer deferWithGuard.Eval()
 
@@ -340,33 +344,25 @@ func signKeys(c *Client, nonce []byte) []byte {
 	return box.Seal(nil, buf.Bytes(), &nonceArr, &c.ClientKey, &c.ServerPermanentBox.Sk)
 }
 
-type BaseMessagePacker interface {
-	Pack(client *Client) ([]byte, error)
-}
-
-type BaseMessage interface {
-	GetSourceType() base.AddressType
-	GetDestinationType() base.AddressType
-}
-
-// baseMessage //
-type baseMessage struct {
+// BaseMessage //
+type BaseMessage struct {
+	PayloadPacker
 	src  base.AddressType
 	dest base.AddressType
 }
 
-// baseMessage //
+// BaseMessage //
 
 // RawMessage //
 type RawMessage struct {
 	BaseMessage
-	baseMessage
 	data []byte
+	PayloadPacker
 }
 
 func NewRawMessage(src base.AddressType, dest base.AddressType, data []byte) *RawMessage {
 	return &RawMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -374,28 +370,22 @@ func NewRawMessage(src base.AddressType, dest base.AddressType, data []byte) *Ra
 	}
 }
 
-func (m *RawMessage) Pack(client *Client) ([]byte, error) {
+func (m *RawMessage) Pack(client *Client, nonceReader *NonceReader) ([]byte, error) {
 	return m.data, nil
-}
-
-func (m *RawMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *RawMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
 }
 
 // RawMessage //
 
 // ServerHelloMessage //
 type ServerHelloMessage struct {
-	baseMessage
+	BaseMessage
+	PayloadPacker
 	serverPublicKey []byte
 }
 
 func NewServerHelloMessage(src base.AddressType, dest base.AddressType, serverPublicKey []byte) *ServerHelloMessage {
 	return &ServerHelloMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -403,34 +393,25 @@ func NewServerHelloMessage(src base.AddressType, dest base.AddressType, serverPu
 	}
 }
 
-func (m *ServerHelloMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": []byte(base.ServerHello),
-			"key":  m.serverPublicKey,
-		}
-		return encodePayload(payload)
-	})
-}
-
-func (m *ServerHelloMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *ServerHelloMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+func (m *ServerHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type": []byte(base.ServerHello),
+		"key":  m.serverPublicKey,
+	}
+	return encodePayload(payload)
 }
 
 // ServerHelloMessage //
 
 // ClientHelloMessage //
 type ClientHelloMessage struct {
-	baseMessage
+	BaseMessage
 	clientPublicKey []byte
 }
 
 func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPublicKey []byte) *ClientHelloMessage {
 	return &ClientHelloMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -438,28 +419,19 @@ func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPu
 	}
 }
 
-func (m *ClientHelloMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": []byte(base.ClientHello),
-			"key":  m.clientPublicKey,
-		}
-		return encodePayload(payload)
-	})
-}
-
-func (m *ClientHelloMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *ClientHelloMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+func (m *ClientHelloMessage) Pack(nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type": []byte(base.ClientHello),
+		"key":  m.clientPublicKey,
+	}
+	return encodePayload(payload)
 }
 
 // ClientHelloMessage //
 
 // ClientAuthMessage //
 type ClientAuthMessage struct {
-	baseMessage
+	BaseMessage
 	serverCookie []byte
 	subprotocols []string
 	pingInterval uint32
@@ -469,7 +441,7 @@ type ClientAuthMessage struct {
 func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCookie []byte,
 	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte) *ClientAuthMessage {
 	return &ClientAuthMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -480,43 +452,34 @@ func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCoo
 	}
 }
 
-func (m *ClientAuthMessage) Pack(client *Client) ([]byte, error) {
+func (m *ClientAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
 	if !client.Authenticated {
 		return nil, base.NewMessageFlowError("Cannot encrypt payload", ErrNotAuthenticatedClient)
 	}
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type":          base.ClientAuth,
-			"your_cookie":   m.serverCookie,
-			"subprotocols":  m.subprotocols,
-			"ping_interval": m.pingInterval,
-		}
-		payload["your_key"] = m.serverKey
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *ClientAuthMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *ClientAuthMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	payload := map[string]interface{}{
+		"type":          base.ClientAuth,
+		"your_cookie":   m.serverCookie,
+		"subprotocols":  m.subprotocols,
+		"ping_interval": m.pingInterval,
+	}
+	payload["your_key"] = m.serverKey
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // ClientAuthMessage //
 
 // ServerAuthMessage //
 type ServerAuthMessage struct {
-	baseMessage
+	BaseMessage
 	clientCookie       []byte
 	signKeys           bool
 	initiatorConnected bool
@@ -527,7 +490,7 @@ type ServerAuthMessage struct {
 func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressType, clientCookie []byte,
 	signKeys bool, responderIds []base.AddressType) *ServerAuthMessage {
 	return &ServerAuthMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -541,7 +504,7 @@ func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressTyp
 func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressType, clientCookie []byte,
 	signKeys bool, initiatorConnected bool) *ServerAuthMessage {
 	return &ServerAuthMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -552,99 +515,81 @@ func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressTyp
 	}
 }
 
-func (m *ServerAuthMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type":        base.ServerAuth,
-			"your_cookie": m.clientCookie,
-		}
-		if m.towardsInitiator {
-			payload["initiator_connected"] = m.initiatorConnected
-		} else {
-			payload["responders"] = m.responderIds
-		}
+func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type":        base.ServerAuth,
+		"your_cookie": m.clientCookie,
+	}
+	if m.towardsInitiator {
+		payload["initiator_connected"] = m.initiatorConnected
+	} else {
+		payload["responders"] = m.responderIds
+	}
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		if m.signKeys {
-			payload["signed_keys"] = signKeys(client, nonce)
-		}
+	if m.signKeys {
+		payload["signed_keys"] = signKeys(client, nonce)
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *ServerAuthMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *ServerAuthMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // ServerAuthMessage //
 
 // NewInitiatorMessage //
 type NewInitiatorMessage struct {
-	baseMessage
+	BaseMessage
 }
 
 func NewNewInitiatorMessage(src base.AddressType, dest base.AddressType) *NewInitiatorMessage {
 	return &NewInitiatorMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
 	}
 }
 
-func (m *NewInitiatorMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": base.NewInitiator,
-		}
+func (m *NewInitiatorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type": base.NewInitiator,
+	}
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *NewInitiatorMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *NewInitiatorMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // NewInitiatorMessage //
 
 // NewResponderMessage //
 type NewResponderMessage struct {
-	baseMessage
+	BaseMessage
 	responderId base.AddressType
 }
 
 func NewNewResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType) *NewResponderMessage {
 	return &NewResponderMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -652,40 +597,31 @@ func NewNewResponderMessage(src base.AddressType, dest base.AddressType, respond
 	}
 }
 
-func (m *NewResponderMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": base.NewResponder,
-			"id":   m.responderId,
-		}
+func (m *NewResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type": base.NewResponder,
+		"id":   m.responderId,
+	}
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *NewResponderMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *NewResponderMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // NewResponderMessage //
 
 // DropResponderMessage //
 type DropResponderMessage struct {
-	baseMessage
+	BaseMessage
 	responderId base.AddressType
 	reason      int
 }
@@ -696,7 +632,7 @@ func NewDropResponderMessage(src base.AddressType, dest base.AddressType, respon
 
 func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressType, responderId base.AddressType, reason int) *DropResponderMessage {
 	return &DropResponderMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -705,47 +641,38 @@ func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressTy
 	}
 }
 
-func (m *DropResponderMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type":   base.DropResponder,
-			"id":     m.responderId,
-			"reason": m.reason,
-		}
+func (m *DropResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type":   base.DropResponder,
+		"id":     m.responderId,
+		"reason": m.reason,
+	}
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *DropResponderMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *DropResponderMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // DropResponderMessage //
 
 // SendErrorMessage //
 type SendErrorMessage struct {
-	baseMessage
+	BaseMessage
 	messageId []byte
 }
 
 func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId []byte) *SendErrorMessage {
 	return &SendErrorMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -753,46 +680,37 @@ func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId 
 	}
 }
 
-func (m *SendErrorMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": base.SendError,
-			"id":   m.messageId,
-		}
+func (m *SendErrorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+	payload := map[string]interface{}{
+		"type": base.SendError,
+		"id":   m.messageId,
+	}
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
-
-func (m *SendErrorMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *SendErrorMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // SendErrorMessage //
 
 // DisconnectedMessage //
 type DisconnectedMessage struct {
-	baseMessage
+	BaseMessage
 	clientId []byte
 }
 
 func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientId []byte) *DisconnectedMessage {
 	return &DisconnectedMessage{
-		baseMessage: baseMessage{
+		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
@@ -800,33 +718,25 @@ func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientI
 	}
 }
 
-func (m *DisconnectedMessage) Pack(client *Client) ([]byte, error) {
-	return Pack(client, m.src, m.dest, func(readNonce func() ([]byte, error)) ([]byte, error) {
-		payload := map[string]interface{}{
-			"type": base.Disconnected,
-			"id":   m.clientId,
-		}
+func (m *DisconnectedMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
 
-		nonce, err := readNonce()
-		if err != nil {
-			return nil, err
-		}
+	payload := map[string]interface{}{
+		"type": base.Disconnected,
+		"id":   m.clientId,
+	}
 
-		encodedPayload, err := encodePayload(payload)
-		if err != nil {
-			return nil, err
-		}
+	nonce, err := nonceReader()
+	if err != nil {
+		return nil, err
+	}
 
-		encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
-		return encryptedPayload, err
-	})
-}
+	encodedPayload, err := encodePayload(payload)
+	if err != nil {
+		return nil, err
+	}
 
-func (m *DisconnectedMessage) GetSourceType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.src)
-}
-func (m *DisconnectedMessage) GetDestinationType() base.AddressType {
-	return base.GetAddressTypeFromAddr(m.dest)
+	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	return encryptedPayload, err
 }
 
 // DisconnectedMessage //

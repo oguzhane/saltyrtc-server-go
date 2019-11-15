@@ -205,7 +205,7 @@ func (c *Client) configureClientAuth() {
 			msg = NewServerAuthMessageForResponder(base.Server, slotWrapper.allocatedIndex, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
 		}
 
-		err := c.Send(msg)
+		err := c.Send(msg.src, msg.dest, msg)
 		if err != nil {
 			bag.err = err
 			return false
@@ -228,7 +228,7 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewInitiatorMessage(base.Server, c.Id)
-		err := c.Send(msg)
+		err := c.Send(msg.src, msg.dest, msg)
 		if err != nil {
 			bag.err = err
 			return false
@@ -250,7 +250,7 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-		err = c.Send(msg)
+		err = c.Send(msg.src, msg.dest, msg)
 		if err != nil {
 			bag.err = err
 			return false
@@ -369,7 +369,7 @@ func (c *Client) Init() {
 		bag, _ := params[0].(*CallbackBag)
 
 		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-		err := c.Send(msg)
+		err := c.Send(msg.src, msg.dest, msg)
 		if err != nil {
 			bag.err = err
 			return false
@@ -473,7 +473,7 @@ func (c *Client) Receive() error {
 
 // readIncomingMessage reads and unpacks received data from connection.
 // It takes io mutex.
-func (c *Client) readIncomingMessage() (BaseMessage, error) {
+func (c *Client) readIncomingMessage() (interface{}, error) {
 	h, r, err := wsutil.NextReader(c.conn, ws.StateServerSide)
 	if err != nil {
 		return nil, err
@@ -496,8 +496,8 @@ func (c *Client) readIncomingMessage() (BaseMessage, error) {
 	return msg, nil
 }
 
-func (c *Client) Send(msg BaseMessagePacker) error {
-	b, err := msg.Pack(c)
+func (c *Client) Send(src base.AddressType, dest base.AddressType, payloadPacker PayloadPacker) error {
+	b, err := Pack(c, src, dest, payloadPacker)
 	if err != nil {
 		return err
 	}
