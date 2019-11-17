@@ -15,6 +15,20 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
+type PayloadUnion struct {
+	Type               base.MessageType `codec:"type"`
+	Key                []byte           `codec:"key,omitempty"`
+	YourCookie         []byte           `codec:"your_cookie,omitempty"`
+	Subprotocols       []string         `codec:"subprotocols,omitempty"`
+	PingInterval       uint32           `codec:"ping_interval,omitempty"`
+	YourKey            []byte           `codec:"your_key,omitempty"`
+	InitiatorConnected bool             `codec:"initiator_connected,omitempty"`
+	Responders         []uint8          `codec:"responders,omitempty"`
+	SignedKeys         []byte           `codec:"signed_keys,omitempty"`
+	Id                 interface{}      `codec:"id,omitempty"`
+	Reason             int              `codec:"reason,omitempty"`
+}
+
 type NonceReader func() ([]byte, error)
 
 type PayloadPacker interface {
@@ -121,45 +135,72 @@ func checkAllKeysExists(data *map[string]interface{}, correlationName string, ke
 	return nil
 }
 
-// Unpack decodes data and returns appropriate Message
-func Unpack(client *Client, data []byte) (message interface{}, resultError error) {
-	deferWithGuard := base.NewEvalWithGuard(func() bool { return resultError == nil })
-	defer deferWithGuard.Eval()
+type RawData struct {
+	Nonce   []byte
+	Cookie  []byte
+	Source  base.AddressType
+	Dest    base.AddressType
+	Csn     []byte
+	Payload []byte
+}
 
+func UnpackRaw(data []byte) (RawData, error) {
 	if len(data) < base.DataLengthMin {
-		return nil, ErrMessageTooShort
+		return RawData{}, ErrMessageTooShort
 	}
 	nonce := data[:base.NonceLength]
 	cookie := nonce[:base.CookieLength]
 	var source base.AddressType = nonce[base.CookieLength:base.SourceUpperBound][0]
 	var dest base.AddressType = nonce[base.SourceUpperBound:base.DestinationUpperBound][0]
-	csnBytes := nonce[base.DestinationUpperBound:base.CsnUpperBound]
+	csn := nonce[base.DestinationUpperBound:base.CsnUpperBound]
+	payload := data[base.NonceLength:]
+	return RawData{
+		Nonce:   nonce,
+		Cookie:  cookie,
+		Source:  source,
+		Dest:    dest,
+		Csn:     csn,
+		Payload: payload,
+	}, nil
+}
+
+type RawDataUnpacker func(data []byte) (RawData, error)
+
+// Unpack decodes data and returns appropriate Message
+func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (message interface{}, resultError error) {
+	rawData, err := rawDataUnpacker(data)
+	if err != nil {
+		return nil, err
+	}
+	deferWithGuard := base.NewEvalWithGuard(func() bool { return resultError == nil })
+	defer deferWithGuard.Eval()
+
 	// sourceType := base.GetAddressTypeFromAddr(source)
-	destType := base.GetAddressTypeFromAddr(dest)
+	destType := base.GetAddressTypeFromAddr(rawData.Dest)
 
 	// Validate destination
 	isToServer := destType == base.Server
 	if typeVal, typeHasVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", dest), ErrNotAllowedMessage)
+		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", rawData.Dest), ErrNotAllowedMessage)
 	}
 
 	// Validate source
-	if client.Id != source {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, source), ErrNotMatchedIdentities)
+	if client.Id != rawData.Source {
+		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, rawData.Source), ErrNotMatchedIdentities)
 	}
 
 	var chkUpSetCookieIn *base.CheckUp
 	// Validate cookie
 	if isToServer {
-		if chkUpSetCookieIn = client.CheckAndSetCookieIn(cookie); chkUpSetCookieIn.Err != nil {
-			return nil, fmt.Errorf("Invalid cookie: 0x%x", cookie)
+		if chkUpSetCookieIn = client.CheckAndSetCookieIn(rawData.Cookie); chkUpSetCookieIn.Err != nil {
+			return nil, fmt.Errorf("Invalid cookie: 0x%x", rawData.Cookie)
 		}
 		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { chkUpSetCookieIn.Eval(); return *prevGuard })
 	}
 
 	// validate and increase csn
 	if isToServer {
-		csn, err := ParseCombinedSequenceNumber(csnBytes)
+		csn, err := ParseCombinedSequenceNumber(rawData.Csn)
 		if err != nil {
 			return nil, err
 		}
@@ -181,123 +222,76 @@ func Unpack(client *Client, data []byte) (message interface{}, resultError error
 			return *prevGuard
 		})
 	}
-	var payload map[string]interface{}
-	if destType == base.Server {
-		payloadRecv := data[base.NonceLength:]
-		decryptedPayload, err := decryptPayload(client, nonce, payloadRecv)
-		decodeData := decryptedPayload
+	if destType != base.Server {
+		return NewRawMessage(rawData.Source, rawData.Dest, data), nil
+	}
+
+	var payload PayloadUnion
+	decryptedPayload, err := decryptPayload(client, rawData.Nonce, rawData.Payload)
+	decodeData := decryptedPayload
+	if err != nil {
+		decodeData = rawData.Payload
+	}
+	payload, err = decodePayload(decodeData)
+	if err != nil {
+		return nil, ErrCantDecodePayload
+	}
+
+	switch payload.Type {
+	case base.ServerHello:
+		if serverPk, err := naclutil.ConvertBoxPkToBytes(payload.Key); err == nil {
+			return NewServerHelloMessage(rawData.Source, rawData.Dest, serverPk), nil
+		}
+		return nil, NewPayloadFieldError(base.ServerHello, "key", err)
+	case base.ClientHello:
+		if clientPk, err := naclutil.ConvertBoxPkToBytes(payload.Key); err == nil {
+			return NewClientHelloMessage(rawData.Source, rawData.Dest, clientPk), nil
+		}
+		return nil, NewPayloadFieldError(base.ClientHello, "key", err)
+	case base.ClientAuth:
+		// your_cookie
+		yourCookie, err := msgutil.ParseYourCookie(payload.YourCookie)
 		if err != nil {
-			decodeData = payloadRecv
+			return nil, NewPayloadFieldError(base.ClientAuth, "your_cookie", err)
 		}
-		payload, err = decodePayload(decodeData)
+
+		// subprotocols
+		subprotocols, err := msgutil.ParseSubprotocols(payload.Subprotocols)
 		if err != nil {
-			return nil, ErrCantDecodePayload
-		}
-		_type, ok := payload["type"]
-		if !ok {
-			return nil, NewPayloadFieldError("", "type", ErrFieldNotExist)
+			return nil, NewPayloadFieldError(base.ClientAuth, "subprotocols", err)
 		}
 
-		switch _type {
-		case "server-hello":
-			// check keys
-			if err := checkAllKeysExists(&payload, "server-hello", "key"); err != nil {
-				return nil, err
-			}
-
-			keyVal, _ := payload["key"]
-			if serverPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
-				return NewServerHelloMessage(source, dest, serverPk), nil
-			}
-			return nil, NewPayloadFieldError("server-hello", "key", err)
-		case "client-hello":
-			// check keys
-			if err := checkAllKeysExists(&payload, "client-hello", "key"); err != nil {
-				return nil, err
-			}
-
-			keyVal, _ := payload["key"]
-			if clientPk, err := naclutil.ConvertBoxPkToBytes(keyVal); err == nil {
-				return NewClientHelloMessage(source, dest, clientPk), nil
-			}
-			return nil, NewPayloadFieldError("client-hello", "key", err)
-		case "client-auth":
-			// check keys
-			if err := checkAllKeysExists(&payload, "client-auth", "your_cookie", "subprotocols", "ping_interval", "your_key"); err != nil {
-				return nil, err
-			}
-
-			// your_cookie
-			yourCookieVal, _ := payload["your_cookie"]
-			yourCookie, err := msgutil.ParseYourCookie(yourCookieVal)
-			if err != nil {
-				return nil, NewPayloadFieldError("client-auth", "your_cookie", err)
-			}
-
-			// subprotocols
-			subprotocolsVal, _ := payload["subprotocols"]
-			subprotocols, err := msgutil.ParseSubprotocols(subprotocolsVal)
-			if err != nil {
-				return nil, NewPayloadFieldError("client-auth", "subprotocols", err)
-			}
-
-			// ping_interval
-			pingIntervalVal, _ := payload["ping_interval"]
-			pingInterval, err := msgutil.ParsePingInterval(pingIntervalVal)
-			if err != nil {
-				return nil, NewPayloadFieldError("client-auth", "ping_interval", err)
-			}
-
-			// your_key
-			yourKeyVal, _ := payload["your_key"]
-			yourKey, err := msgutil.ParseYourKey(yourKeyVal)
-			if err != nil {
-				return nil, NewPayloadFieldError("client-auth", "your_key", err)
-			}
-
-			return NewClientAuthMessage(source, dest, yourCookie, subprotocols, uint32(pingInterval), yourKey), nil
-		case "new-initiator":
-			return NewNewInitiatorMessage(source, dest), nil
-		case "new-responder":
-			// check keys
-			if err := checkAllKeysExists(&payload, "new-responder", "id"); err != nil {
-				return nil, err
-			}
-
-			id, err := msgutil.ParseAddressId(payload["id"])
-			if err != nil {
-				return nil, NewPayloadFieldError("new-responder", "id", err)
-			}
-			return NewNewResponderMessage(source, dest, id), nil
-		case "drop-responder":
-			// check keys
-			if err := checkAllKeysExists(&payload, "drop-responder", "id"); err != nil {
-				return nil, err
-			}
-
-			id, err := msgutil.ParseAddressId(payload["id"])
-			if err != nil || id <= base.Initiator {
-				return nil, NewPayloadFieldError("drop-responder", "id", err)
-			}
-			reasonVal, ok := payload["reason"]
-			if ok {
-				reason, err := msgutil.ParseReasonCode(reasonVal)
-				if err != nil {
-					return nil, NewPayloadFieldError("drop-responder", "reason", err)
-				}
-				return NewDropResponderMessageWithReason(source, dest, id, reason), nil
-			}
-			return NewDropResponderMessage(source, dest, id), nil
-		default:
-			return nil, NewPayloadFieldError(fmt.Sprintf("%v", _type), "type", ErrInvalidFieldValue)
+		// your_key
+		yourKey, err := msgutil.ParseYourKey(payload.YourKey)
+		if err != nil {
+			return nil, NewPayloadFieldError(base.ClientAuth, "your_key", err)
 		}
 
-	} else {
-		return NewRawMessage(source, dest, data), nil
+		return NewClientAuthMessage(rawData.Source, rawData.Dest, yourCookie, subprotocols, payload.PingInterval, yourKey), nil
+	case base.NewInitiator:
+		return NewNewInitiatorMessage(rawData.Source, rawData.Dest), nil
+	case base.NewResponder:
+		id, err := msgutil.ParseAddressId(payload.Id)
+		if err != nil {
+			return nil, NewPayloadFieldError(base.NewResponder, "id", err)
+		}
+		return NewNewResponderMessage(rawData.Source, rawData.Dest, id), nil
+	case base.DropResponder:
+		id, err := msgutil.ParseAddressId(payload.Id)
+		if err != nil || id <= base.Initiator {
+			return nil, NewPayloadFieldError(base.DropResponder, "id", err)
+		}
+		reason, err := msgutil.ParseReasonCode(payload.Reason)
+		if err != nil {
+			return NewDropResponderMessageWithReason(rawData.Source, rawData.Dest, id, reason), nil
+		}
+		return NewDropResponderMessage(rawData.Source, rawData.Dest, id), nil
+	default:
+		return nil, NewPayloadFieldError(payload.Type, "type", ErrInvalidFieldValue)
 	}
 }
 
-func encodePayload(payload map[string]interface{}) ([]byte, error) {
+func encodePayload(payload interface{}) ([]byte, error) {
 	b := new(bytes.Buffer)
 	bw := bufio.NewWriter(b)
 	h := new(codec.MsgpackHandle)
@@ -311,10 +305,11 @@ func encodePayload(payload map[string]interface{}) ([]byte, error) {
 	return b.Bytes(), err
 }
 
-func decodePayload(encodedPayload []byte) (map[string]interface{}, error) {
+func decodePayload(encodedPayload []byte) (PayloadUnion, error) {
 	h := new(codec.MsgpackHandle)
+	h.ErrorIfNoField = true
 	dec := codec.NewDecoderBytes(encodedPayload, h)
-	v := make(map[string]interface{})
+	v := PayloadUnion{}
 	err := dec.Decode(&v)
 	return v, err
 }
@@ -346,7 +341,6 @@ func signKeys(c *Client, nonce []byte) []byte {
 
 // BaseMessage //
 type BaseMessage struct {
-	PayloadPacker
 	src  base.AddressType
 	dest base.AddressType
 }
@@ -394,9 +388,12 @@ func NewServerHelloMessage(src base.AddressType, dest base.AddressType, serverPu
 }
 
 func (m *ServerHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type": []byte(base.ServerHello),
-		"key":  m.serverPublicKey,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+		Key  []byte           `codec:"key"`
+	}{
+		Type: base.ServerHello,
+		Key:  m.serverPublicKey,
 	}
 	return encodePayload(payload)
 }
@@ -420,9 +417,12 @@ func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPu
 }
 
 func (m *ClientHelloMessage) Pack(nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type": []byte(base.ClientHello),
-		"key":  m.clientPublicKey,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+		Key  []byte           `codec:"key"`
+	}{
+		Type: base.ClientHello,
+		Key:  m.clientPublicKey,
 	}
 	return encodePayload(payload)
 }
@@ -456,13 +456,19 @@ func (m *ClientAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 	if !client.Authenticated {
 		return nil, base.NewMessageFlowError("Cannot encrypt payload", ErrNotAuthenticatedClient)
 	}
-	payload := map[string]interface{}{
-		"type":          base.ClientAuth,
-		"your_cookie":   m.serverCookie,
-		"subprotocols":  m.subprotocols,
-		"ping_interval": m.pingInterval,
+	payload := struct {
+		Type         base.MessageType `codec:"type"`
+		YourCookie   []byte           `codec:"your_cookie"`
+		Subprotocols []string         `codec:"subprotocols"`
+		PingInterval uint32           `codec:"ping_interval"`
+		YourKey      [32]byte         `codec:"your_key"`
+	}{
+		Type:         base.ClientAuth,
+		YourCookie:   m.serverCookie,
+		Subprotocols: m.subprotocols,
+		PingInterval: m.pingInterval,
+		YourKey:      m.serverKey,
 	}
-	payload["your_key"] = m.serverKey
 	encodedPayload, err := encodePayload(payload)
 	if err != nil {
 		return nil, err
@@ -516,23 +522,60 @@ func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressTyp
 }
 
 func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type":        base.ServerAuth,
-		"your_cookie": m.clientCookie,
-	}
-	if m.towardsInitiator {
-		payload["initiator_connected"] = m.initiatorConnected
-	} else {
-		payload["responders"] = m.responderIds
-	}
-
+	var payload interface{}
 	nonce, err := nonceReader()
 	if err != nil {
 		return nil, err
 	}
 
-	if m.signKeys {
-		payload["signed_keys"] = signKeys(client, nonce)
+	if m.towardsInitiator {
+		if m.signKeys {
+			payload = struct {
+				Type               base.MessageType `codec:"type"`
+				YourCookie         []byte           `codec:"your_cookie"`
+				InitiatorConnected bool             `codec:"initiator_connected"`
+				SignedKeys         []byte           `codec:"signed_keys"`
+			}{
+				Type:               base.ServerAuth,
+				YourCookie:         m.clientCookie,
+				InitiatorConnected: m.initiatorConnected,
+				SignedKeys:         signKeys(client, nonce),
+			}
+		} else {
+			payload = struct {
+				Type               base.MessageType `codec:"type"`
+				YourCookie         []byte           `codec:"your_cookie"`
+				InitiatorConnected bool             `codec:"initiator_connected"`
+			}{
+				Type:               base.ServerAuth,
+				YourCookie:         m.clientCookie,
+				InitiatorConnected: m.initiatorConnected,
+			}
+		}
+	} else {
+		if m.signKeys {
+			payload = struct {
+				Type       base.MessageType `codec:"type"`
+				YourCookie []byte           `codec:"your_cookie"`
+				Responders []uint8          `codec:"responders"`
+				SignedKeys []byte           `codec:"signed_keys"`
+			}{
+				Type:       base.ServerAuth,
+				YourCookie: m.clientCookie,
+				Responders: m.responderIds,
+				SignedKeys: signKeys(client, nonce),
+			}
+		} else {
+			payload = struct {
+				Type       base.MessageType `codec:"type"`
+				YourCookie []byte           `codec:"your_cookie"`
+				Responders []uint8          `codec:"responders"`
+			}{
+				Type:       base.ServerAuth,
+				YourCookie: m.clientCookie,
+				Responders: m.responderIds,
+			}
+		}
 	}
 
 	encodedPayload, err := encodePayload(payload)
@@ -561,8 +604,10 @@ func NewNewInitiatorMessage(src base.AddressType, dest base.AddressType) *NewIni
 }
 
 func (m *NewInitiatorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type": base.NewInitiator,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+	}{
+		Type: base.NewInitiator,
 	}
 
 	nonce, err := nonceReader()
@@ -598,9 +643,12 @@ func NewNewResponderMessage(src base.AddressType, dest base.AddressType, respond
 }
 
 func (m *NewResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type": base.NewResponder,
-		"id":   m.responderId,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+		Id   uint8            `codec:"id"`
+	}{
+		Type: base.NewResponder,
+		Id:   m.responderId,
 	}
 
 	nonce, err := nonceReader()
@@ -642,10 +690,14 @@ func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressTy
 }
 
 func (m *DropResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type":   base.DropResponder,
-		"id":     m.responderId,
-		"reason": m.reason,
+	payload := struct {
+		Type   base.MessageType `codec:"type"`
+		Id     uint8            `codec:"id"`
+		Reason int              `codec:"reason"`
+	}{
+		Type:   base.DropResponder,
+		Id:     m.responderId,
+		Reason: m.reason,
 	}
 
 	nonce, err := nonceReader()
@@ -681,9 +733,12 @@ func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId 
 }
 
 func (m *SendErrorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	payload := map[string]interface{}{
-		"type": base.SendError,
-		"id":   m.messageId,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+		Id   []byte           `codec:"id"`
+	}{
+		Type: base.SendError,
+		Id:   m.messageId,
 	}
 
 	nonce, err := nonceReader()
@@ -720,9 +775,12 @@ func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientI
 
 func (m *DisconnectedMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
 
-	payload := map[string]interface{}{
-		"type": base.Disconnected,
-		"id":   m.clientId,
+	payload := struct {
+		Type base.MessageType `codec:"type"`
+		Id   []byte           `codec:"id"`
+	}{
+		Type: base.Disconnected,
+		Id:   m.clientId,
 	}
 
 	nonce, err := nonceReader()

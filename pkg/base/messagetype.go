@@ -1,6 +1,6 @@
 package base
 
-type MessageType string
+type MessageType = string
 
 const (
 	ServerHello   MessageType = "server-hello"

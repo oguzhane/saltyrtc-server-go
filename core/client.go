@@ -488,7 +488,7 @@ func (c *Client) readIncomingMessage() (interface{}, error) {
 	}
 
 	// try to unpack data in order to obtain message
-	msg, err := Unpack(c, b)
+	msg, err := Unpack(c, b, UnpackRaw)
 	if err != nil {
 		return nil, err
 	}
