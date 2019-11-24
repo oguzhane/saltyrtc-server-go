@@ -193,7 +193,7 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 	// Validate cookie
 	if isToServer {
 		if chkUpSetCookieIn = client.CheckAndSetCookieIn(rawData.Cookie); chkUpSetCookieIn.Err != nil {
-			return nil, fmt.Errorf("Invalid cookie: 0x%x", rawData.Cookie)
+			return nil, fmt.Errorf("Invalid cookie: 0x%x. err: %#v", rawData.Cookie, chkUpSetCookieIn.Err)
 		}
 		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { chkUpSetCookieIn.Eval(); return *prevGuard })
 	}
@@ -416,7 +416,7 @@ func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPu
 	}
 }
 
-func (m *ClientHelloMessage) Pack(nonceReader NonceReader) ([]byte, error) {
+func (m *ClientHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 		Key  []byte           `codec:"key"`
