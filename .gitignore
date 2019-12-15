@@ -13,3 +13,5 @@
 
 .vscode/
 vendor/
+cmd/saltyrtc-server-go/main
+examples/
