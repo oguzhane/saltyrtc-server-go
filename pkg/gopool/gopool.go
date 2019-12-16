@@ -28,15 +28,18 @@ func NewWorker(workerPool chan chan Job) Worker {
 // Start method starts the run loop for the worker, listening for a quit channel in
 // case we need to stop it
 func (w Worker) Start() {
+	// register the current worker into the worker queue.
+	w.WorkerPool <- w.JobChannel
 	go func() {
 		for {
-			// register the current worker into the worker queue.
-			w.WorkerPool <- w.JobChannel
-
 			select {
 			case job := <-w.JobChannel:
 				// we have received a work request.
 				job.Run()
+				for job = range w.JobChannel {
+					job.Run()
+				}
+				w.WorkerPool <- w.JobChannel
 			case <-w.quit:
 				// we have received a signal to stop
 				return
