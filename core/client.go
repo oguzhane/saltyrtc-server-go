@@ -76,6 +76,7 @@ type Client struct {
 	typeHasValue  bool
 	Path          *Path
 	Server        *Server
+	AliveStat     base.AliveStatType
 }
 
 func (c *Client) configureServerHello() {
@@ -360,10 +361,9 @@ func (c *Client) configureInitiatorSuperState() {
 	})
 }
 
-func (c *Client) Init() {
-	sm := statmach.New(ClientConnected)
-	c.machine = sm
-	sc := sm.Configure(ClientConnected)
+func (c *Client) configureClientConnected() {
+	// configure ClientConnected
+	sc := c.machine.Configure(ClientConnected)
 	// ClientConnected->ServerHello
 	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -376,6 +376,14 @@ func (c *Client) Init() {
 		}
 		return true
 	})
+}
+
+func (c *Client) Init() {
+	// initial state
+	sm := statmach.New(ClientConnected)
+	c.machine = sm
+
+	c.configureClientConnected()
 
 	c.configureServerHello()
 
@@ -400,7 +408,7 @@ func (c *Client) Init() {
 
 // todo: implement it properly
 func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
-	cookieOut, err := randutil.RandBytes(16)
+	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +473,11 @@ func (c *Client) Receive() error {
 		return nil
 	}
 	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
-		c.machine.Fire(ClientHello, msg)
+		c.machine.Fire(GetClientHelloMsg, msg)
+	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
+		c.machine.Fire(GetClientAuthMsg, msg)
+	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
+		c.machine.Fire(GetDropResponderMsg, msg)
 	}
 	// todo: handle all messages
 	return nil
@@ -501,6 +513,26 @@ func (c *Client) Send(src base.AddressType, dest base.AddressType, payloadPacker
 	if err != nil {
 		return err
 	}
-	_, err = c.conn.Write(b)
-	return err
+	return wsutil.WriteServerBinary(c.conn, b)
+}
+
+func (c *Client) MarkAsOrphan() {
+	c.AliveStat = base.MarkAsOrphan(c.AliveStat)
+}
+
+func (c *Client) MarkAsDeath() {
+	c.AliveStat = base.MarkAsDeath(c.AliveStat)
+}
+
+func (c *Client) MarkAsDeathIfConnDeath() bool {
+	if (c.conn.AliveStat & base.AliveStatDeath) != base.AliveStatDeath {
+		c.AliveStat = base.MarkAsDeath(c.AliveStat)
+		return true
+	}
+	return false
+}
+
+func (c *Client) CloseConn(closeFrame []byte) error {
+	c.MarkAsOrphan()
+	return c.conn.Close(closeFrame)
 }

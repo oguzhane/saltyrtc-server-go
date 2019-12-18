@@ -193,7 +193,7 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 	// Validate cookie
 	if isToServer {
 		if chkUpSetCookieIn = client.CheckAndSetCookieIn(rawData.Cookie); chkUpSetCookieIn.Err != nil {
-			return nil, fmt.Errorf("Invalid cookie: 0x%x. err: %#v", rawData.Cookie, chkUpSetCookieIn.Err)
+			return nil, fmt.Errorf("Invalid cookie: 0x%x. err: %+v", rawData.Cookie, chkUpSetCookieIn.Err)
 		}
 		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { chkUpSetCookieIn.Eval(); return *prevGuard })
 	}

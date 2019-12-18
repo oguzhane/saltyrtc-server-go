@@ -13,6 +13,7 @@ type Path struct {
 	initiatorKey string
 	number       uint32
 	slots        map[base.AddressType]interface{}
+	AliveStat    base.AliveStatType
 }
 
 type SlotWrapper struct {
@@ -23,6 +24,7 @@ type SlotWrapper struct {
 }
 
 func NewSlotWrapper(client *Client, path *Path, allocatedIndex uint8) *SlotWrapper {
+	client.Id = allocatedIndex
 	return &SlotWrapper{
 		client:         client,
 		allocatedIndex: allocatedIndex,
@@ -30,18 +32,19 @@ func NewSlotWrapper(client *Client, path *Path, allocatedIndex uint8) *SlotWrapp
 	}
 }
 
-func (s *SlotWrapper) Commit() {
-	s.path.mux.Lock()
-	defer s.path.mux.Unlock()
+func (sw *SlotWrapper) Commit() {
+	sw.path.mux.Lock()
+	defer sw.path.mux.Unlock()
 
-	s.path.slots[s.allocatedIndex] = s.client
-	s.committed = true
+	sw.path.slots[sw.allocatedIndex] = sw.client
+	sw.committed = true
 }
 
-func (s *SlotWrapper) Abort() {
-	s.path.mux.Lock()
-	defer s.path.mux.Unlock()
-	s.path.slots[s.allocatedIndex] = nil
+func (sw *SlotWrapper) Abort() {
+	sw.path.mux.Lock()
+	defer sw.path.mux.Unlock()
+	sw.client.Id = base.Server
+	delete(sw.path.slots, sw.allocatedIndex)
 }
 
 // NewPath function creates Path instance
@@ -110,6 +113,23 @@ func (p *Path) RemoveClientByID(id base.AddressType) (interface{}, error) {
 	return client, nil
 }
 
+// RemoveClient removes client from slots by id, if it is the same one
+// returns if it had existed
+func (p *Path) RemoveClient(client *Client) bool {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	if client == nil || client.Id == base.Server {
+		return false
+	}
+	slot, ok := p.slots[client.Id]
+	if c, _ := unwrapClient(slot); ok && c == client {
+		delete(p.slots, client.Id)
+		client.Id = base.Server // reset id to default
+	}
+	return ok
+}
+
 // GetResponderIds gets settled responders
 func (p *Path) GetResponderIds() []uint8 {
 	p.mux.Lock()
@@ -135,4 +155,39 @@ func (p *Path) FindClientByID(id base.AddressType) (interface{}, error) {
 		return nil, base.NewValueError(fmt.Sprintf("Invalid slot id:0x%x", id))
 	}
 	return client, nil
+}
+
+func (p *Path) Prune(aliveClientHandler func(c *Client) bool) uint8 {
+	freeSlotNum := base.Responder
+	var clientID base.AddressType = 0x01
+	for ; clientID <= base.Responder; clientID = clientID + 0x01 {
+		if slot, ok := p.slots[clientID]; ok {
+			client, _ := unwrapClient(slot)
+			if client == nil || ((client.conn.AliveStat & base.AliveStatDeath) == base.AliveStatDeath) || aliveClientHandler(client) {
+				client.MarkAsOrphan() // should we keep it???
+				delete(p.slots, clientID)
+				continue
+			}
+			freeSlotNum = freeSlotNum - 0x01
+		}
+	}
+	return freeSlotNum
+}
+
+func (p *Path) MarkAsOrphan() {
+	p.AliveStat = base.MarkAsOrphan(p.AliveStat)
+}
+
+func (p *Path) MarkAsDeath() {
+	p.AliveStat = base.MarkAsDeath(p.AliveStat)
+}
+
+func unwrapClient(v interface{}) (*Client, *SlotWrapper) {
+	if slotWrapper, ok := v.(*SlotWrapper); ok {
+		return slotWrapper.client, slotWrapper
+	}
+	if client, ok := v.(*Client); ok {
+		return client, nil
+	}
+	return nil, nil
 }
