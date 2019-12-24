@@ -15,7 +15,7 @@ func main() {
 	addr := ":3838"
 
 	server = core.NewServer()
-	server.Start(&addr)
+	server.Start(addr)
 	quit := make(chan interface{})
 	select {
 	case <-quit:

@@ -1,22 +1,30 @@
 package core
 
 import (
+	"io/ioutil"
 	"log"
 	"net"
+	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
 
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
 	"github.com/gammazero/workerpool"
 	ws "github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/mailru/easygo/netpoll"
 )
 
 const (
-	MaxJobs    = 32
+	// MaxJobs ..
+	MaxJobs = 32
+	// MaxWorkers ..
 	MaxWorkers = 8
 )
 
@@ -45,48 +53,131 @@ func NewServer() *Server {
 	}
 }
 
-// Start runs the server
-func (s *Server) Start(addr *string) error {
-	s.wp = workerpool.New(MaxWorkers)
-
-	// Initialize netpoll instance. We will use it to be noticed about incoming
-	// events from listener of user connections.
-	poller, err := netpoll.New(nil)
-	if err != nil {
-		return err
-	}
-
-	// Create incoming connections listener.
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	Sugar.Infof("websocket is listening on %s", ln.Addr().String())
-
-	// Create netpoll descriptor for the listener.
-	// We use OneShot here to manually resume events stream when we want to.
-	acceptDesc := netpoll.Must(netpoll.HandleListener(
-		ln, netpoll.EventRead|netpoll.EventOneShot,
-	))
-
-	// accept is a channel to signal about next incoming connection Accept()
-	// results.
-	poller.Start(acceptDesc, func(e netpoll.Event) {
-		s.wp.Submit(func() {
-
-			conn, err := ln.Accept()
-			if err != nil {
-				Sugar.Error(err)
-				return
+func loopAccept(fd int, l *loop, ln *listener) error {
+	if fd == ln.fd {
+		conn, err := ln.ln.Accept()
+		nfd := socketFD(conn)
+		if err != nil {
+			if err == syscall.EAGAIN {
+				return nil
 			}
-			s.handleNewConnection(poller, conn)
-		})
+			conn.Close()
+			return err
+		}
 
-		poller.Resume(acceptDesc)
-	})
+		if err := syscall.SetNonblock(nfd, true); err != nil {
+			conn.Close()
+			return err
+		}
 
+		c := &Conn{netConn: conn, fd: nfd, loop: l}
+		l.fdconns[c.fd] = c
+		l.poll.AddReadWrite(c.fd)
+		atomic.AddInt32(&l.count, 1)
+	}
 	return nil
+}
+
+func loopOpened(l *loop, ln *listener, c *Conn) error {
+	c.opened = true
+	c.remoteAddr = c.netConn.RemoteAddr()
+	l.poll.ModRead(c.fd)
+	return nil
+}
+
+func loopCloseConn(l *loop, c *Conn) error {
+	atomic.AddInt32(&l.count, -1)
+	delete(l.fdconns, c.fd)
+	syscall.Close(c.fd)
+	return nil
+}
+
+func loopRead(l *loop, ln *listener, c *Conn) error {
+	if !c.upgraded {
+		l.poll.ModReadWrite(c.fd)
+		defer l.poll.ModRead(c.fd)
+		upgrader := ws.Upgrader{}
+		_, err := upgrader.Upgrade(c.netConn)
+		if err != nil {
+			if err == syscall.EAGAIN {
+				return nil
+			}
+			Sugar.Error(err)
+			return loopCloseConn(l, c)
+		}
+		c.upgraded = true
+		return nil
+	}
+	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+	if err != nil {
+		Sugar.Error(err)
+		return nil
+	}
+	if h.OpCode.IsControl() {
+		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
+		Sugar.Error(err)
+
+		if err != nil {
+			Sugar.Error(err)
+			if _, ok := err.(wsutil.ClosedError); ok {
+				Sugar.Info("connection closing..")
+				loopCloseConn(l, c)
+			}
+		}
+		return nil
+	}
+
+	// read all raw data
+	b, err := ioutil.ReadAll(r)
+	if err != nil {
+		Sugar.Error(err)
+		return nil
+	}
+	log.Printf("WSDATA: %s", strings.TrimSpace(string(b)))
+	l.poll.ModReadWrite(c.fd)
+	defer l.poll.ModRead(c.fd)
+	return wsutil.WriteServerBinary(c.netConn, b)
+}
+
+// Start runs the server
+func (s *Server) Start(addr string) error {
+	s.wp = workerpool.New(MaxWorkers)
+	var err error
+
+	ln := &listener{
+		network: "tcp",
+		addr:    addr,
+	}
+
+	ln.ln, err = net.Listen(ln.network, ln.addr)
+	if err != nil {
+		Sugar.Fatal(err)
+	}
+	ln.lnaddr = ln.ln.Addr()
+	Sugar.Infof("websocket is listening on %s\n", ln.lnaddr.String())
+
+	ln.system()
+
+	poll := evpoll.OpenPoll()
+	loop := &loop{
+		poll:    poll,
+		fdconns: make(map[int]*Conn),
+	}
+	poll.AddRead(ln.fd)
+	return poll.Wait(func(fd int, note interface{}) error {
+		if fd == 0 {
+			return nil
+		}
+		c := loop.fdconns[fd]
+		switch {
+		case c == nil:
+			return loopAccept(fd, loop, ln)
+		case !c.opened:
+			return loopOpened(loop, ln, c)
+		default:
+			return loopRead(loop, ln, c)
+		}
+	})
 }
 
 func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
