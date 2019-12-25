@@ -16,6 +16,7 @@ type Conn struct {
 	loop       *loop            // connected loop
 	netConn    net.Conn
 	upgraded   bool // upgraded to ws protocol
+	client     *Client
 }
 
 func socketFD(conn net.Conn) int {

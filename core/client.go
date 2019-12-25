@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io/ioutil"
+	"strings"
 	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
@@ -52,13 +53,16 @@ const (
 	SendDisconnectedMsg = "sendDisconnectedMessage"
 )
 
+// CallbackBag ..
 type CallbackBag struct {
 	err error
 }
 
+// Client ..
 type Client struct {
 	mux     sync.Mutex
 	conn    *ClientConn
+	connx   *Conn
 	machine *statmach.StateMachine
 
 	ClientKey          [base.KeyBytesSize]byte
@@ -205,8 +209,8 @@ func (c *Client) configureClientAuth() {
 			_, initiatorConnected := c.Path.GetInitiator()
 			msg = NewServerAuthMessageForResponder(base.Server, slotWrapper.allocatedIndex, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
 		}
-
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -229,7 +233,8 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewInitiatorMessage(base.Server, c.Id)
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -251,7 +256,8 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-		err = c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err = c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -369,7 +375,8 @@ func (c *Client) configureClientConnected() {
 		bag, _ := params[0].(*CallbackBag)
 
 		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -378,6 +385,7 @@ func (c *Client) configureClientConnected() {
 	})
 }
 
+// Init ..
 func (c *Client) Init() {
 	// initial state
 	sm := statmach.New(ClientConnected)
@@ -406,7 +414,7 @@ func (c *Client) Init() {
 	c.configureDisconnected()
 }
 
-// todo: implement it properly
+// NewClient .. todo: implement it properly
 func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
@@ -426,10 +434,12 @@ func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox
 	}, nil
 }
 
+// GetCookieIn ..
 func (c *Client) GetCookieIn() []byte {
 	return c.cookieIn
 }
 
+// CheckAndSetCookieIn ..
 func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 	chkUp := base.NewCheckUp()
 	if c.cookieIn == nil {
@@ -448,9 +458,12 @@ func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 	return chkUp
 }
 
+// GetType ..
 func (c *Client) GetType() (base.AddressType, bool) {
 	return c.typeValue, c.typeHasValue
 }
+
+// SetType ..
 func (c *Client) SetType(t base.AddressType) {
 	c.typeHasValue = true
 	c.typeValue = t
@@ -508,22 +521,44 @@ func (c *Client) readIncomingMessage() (interface{}, error) {
 	return msg, nil
 }
 
-func (c *Client) Send(src base.AddressType, dest base.AddressType, payloadPacker PayloadPacker) error {
-	b, err := Pack(c, src, dest, payloadPacker)
+// Received ..
+func (c *Client) Received(b []byte) {
+
+	Sugar.Infof("WSDATA: %s\n", strings.TrimSpace(string(b)))
+
+	msgIncoming, err := Unpack(c, b, UnpackRaw)
+
 	if err != nil {
-		return err
+		Sugar.Error(err)
+		return
 	}
-	return wsutil.WriteServerBinary(c.conn, b)
+
+	if msgIncoming == nil {
+		// Handled some control message.
+		return
+	}
+	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
+		c.machine.Fire(GetClientHelloMsg, msg)
+	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
+		c.machine.Fire(GetClientAuthMsg, msg)
+	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
+		c.machine.Fire(GetDropResponderMsg, msg)
+	}
+	// todo: handle all messages
+	return
 }
 
+// MarkAsOrphan ..
 func (c *Client) MarkAsOrphan() {
 	c.AliveStat = base.MarkAsOrphan(c.AliveStat)
 }
 
+// MarkAsDeath ..
 func (c *Client) MarkAsDeath() {
 	c.AliveStat = base.MarkAsDeath(c.AliveStat)
 }
 
+// MarkAsDeathIfConnDeath ..
 func (c *Client) MarkAsDeathIfConnDeath() bool {
 	if (c.conn.AliveStat & base.AliveStatDeath) != base.AliveStatDeath {
 		c.AliveStat = base.MarkAsDeath(c.AliveStat)
@@ -532,6 +567,7 @@ func (c *Client) MarkAsDeathIfConnDeath() bool {
 	return false
 }
 
+// CloseConn ..
 func (c *Client) CloseConn(closeFrame []byte) error {
 	c.MarkAsOrphan()
 	return c.conn.Close(closeFrame)
