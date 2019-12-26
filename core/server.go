@@ -131,12 +131,12 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 	if err != nil {
 		Sugar.Error(err)
 		if _, ok := err.(*ws.ProtocolError); ok || err == syscall.EAGAIN {
+			io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 			return
 		}
 
 		l.poll.ModDetach(c.fd)
 		loopCloseConn(l, c, nil)
-		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 		return
 	}
 
@@ -149,7 +149,6 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 		}
 
 		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
-		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 
 		if err != nil || h.OpCode == ws.OpClose {
 			Sugar.Error(err)
