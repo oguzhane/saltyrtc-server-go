@@ -120,32 +120,33 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 		return err
 	}
 
-	Sugar.Info("Submit")
-	s.wp.Submit(func() {
-		Sugar.Info("Call handleReceive")
-		handleReceive(l, ln, c)
-	})
+	s.handleReceive(l, ln, c)
 	return nil
 }
 
-func handleReceive(l *loop, ln *listener, c *Conn) {
+func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 	Sugar.Info("Inside handleReceive")
 	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
 
 	if err != nil {
 		Sugar.Error(err)
-		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
-
 		if _, ok := err.(*ws.ProtocolError); ok || err == syscall.EAGAIN {
 			return
 		}
+
+		l.poll.ModDetach(c.fd)
 		loopCloseConn(l, c, nil)
+		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 		return
 	}
 
 	if h.OpCode.IsControl() {
-		l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
-		defer l.poll.ModRead(c.fd)
+		if h.OpCode == ws.OpClose {
+			l.poll.ModDetach(c.fd)
+		} else if h.OpCode == ws.OpPing {
+			l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
+			defer l.poll.ModRead(c.fd)
+		}
 
 		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
 		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
@@ -162,12 +163,16 @@ func handleReceive(l *loop, ln *listener, c *Conn) {
 		return
 	}
 
-	b, err := ioutil.ReadAll(r)
-	if h.OpCode.IsData() && err == nil {
-		c.client.Received(b)
-		return
-	}
-	Sugar.Error(err)
+	s.wp.Submit(func() {
+		b, err := ioutil.ReadAll(r)
+		if h.OpCode.IsData() && err == nil {
+			Sugar.Info("Submit")
+			Sugar.Info("Call client.Received")
+			c.client.Received(b)
+			return
+		}
+		Sugar.Error(err)
+	})
 }
 
 func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error) {
