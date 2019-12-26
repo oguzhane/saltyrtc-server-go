@@ -1,6 +1,7 @@
 package core
 
 import (
+	"io"
 	"io/ioutil"
 	"net"
 	"sync/atomic"
@@ -10,7 +11,6 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
-	"github.com/mailru/easygo/netpoll"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
@@ -120,41 +120,54 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 		return err
 	}
 
-	// Sugar.Info("Call handleReceive")
-	// handleReceive(l, ln, c)
-
 	Sugar.Info("Submit")
 	s.wp.Submit(func() {
 		Sugar.Info("Call handleReceive")
 		handleReceive(l, ln, c)
 	})
 	return nil
-	// s.handleTick(c)
 }
 
 func handleReceive(l *loop, ln *listener, c *Conn) {
 	Sugar.Info("Inside handleReceive")
 	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+
 	if err != nil {
 		Sugar.Error(err)
+		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
+
+		if _, ok := err.(*ws.ProtocolError); ok || err == syscall.EAGAIN {
+			return
+		}
+		loopCloseConn(l, c, nil)
 		return
 	}
-	if h.OpCode.IsControl() {
-		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
-		Sugar.Error(err)
 
-		if err != nil {
+	if h.OpCode.IsControl() {
+		l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
+		defer l.poll.ModRead(c.fd)
+
+		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
+		io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
+
+		if err != nil || h.OpCode == ws.OpClose {
 			Sugar.Error(err)
-			if _, ok := err.(wsutil.ClosedError); ok {
-				Sugar.Info("connection closing..")
-				loopCloseConn(l, c, nil)
+
+			if err == syscall.EAGAIN {
+				return
 			}
+			Sugar.Info("connection closing..")
+			loopCloseConn(l, c, nil)
 		}
 		return
 	}
 
-	b, _ := ioutil.ReadAll(r)
-	c.client.Received(b)
+	b, err := ioutil.ReadAll(r)
+	if h.OpCode.IsData() && err == nil {
+		c.client.Received(b)
+		return
+	}
+	Sugar.Error(err)
 }
 
 func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error) {
@@ -221,126 +234,6 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	c.upgraded = true
 	Sugar.Infof("Connection established. key:%s", initiatorKey)
 	return nil
-}
-
-func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
-	// NOTE: we wrap conn here to show that ws could work with any kind of
-	// io.ReadWriter.
-	clientConn := NewClientConn(&conn, time.Millisecond*100)
-	initiatorKey := ""
-	upgrader := ws.Upgrader{
-		OnRequest: func(uri []byte) error {
-			initiatorKey = string(uri)[1:]
-			return hexutil.IsValidHexPathString(initiatorKey)
-		},
-	}
-	// Zero-copy upgrade to WebSocket connection.
-	_, err := upgrader.Upgrade(clientConn)
-
-	if err != nil {
-		Sugar.Debugf("%s: upgrade error: %+v", conn.RemoteAddr().String(), err)
-		clientConn.Close(CloseFrameProtocolError)
-		return
-	}
-
-	initiatorKeyBytes, err := hexutil.HexStringToBytes32(initiatorKey)
-	if err != nil {
-		Sugar.Error("Closing due to invalid key:", initiatorKey)
-		clientConn.Close(CloseFrameInvalidKey)
-		return
-	}
-	var client *Client
-	box, err := boxkeypair.GenerateBoxKeyPair()
-	if err == nil {
-		// TODO: we should keep oldPath unless handshake for newPath is completed
-		path, oldPath := s.paths.Add(initiatorKey)
-		if oldPath != nil && path != oldPath {
-			oldPath.MarkAsDeath()
-			path.Prune(func(c *Client) bool {
-				c.CloseConn(CloseFrameNormalClosure)
-				c.MarkAsDeathIfConnDeath()
-				return true
-			})
-		}
-		defaultPermanentBox := s.permanentBoxes[0]
-		client, err = NewClient(&clientConn, *initiatorKeyBytes, defaultPermanentBox, box)
-		client.Path = path
-		client.Server = s
-	}
-	if err != nil || client == nil {
-		Sugar.Error("Closing due to internal err:", err)
-		clientConn.Close(CloseFrameInternalError)
-		return
-	}
-	// initialize the client
-	client.Init()
-	Sugar.Infof("Connection established. key:%s", initiatorKey)
-	// Create netpoll event descriptor for conn.
-	// We want to handle only read events of it.
-	desc := netpoll.Must(netpoll.HandleRead(conn))
-
-	// Subscribe to events about conn.
-	poller.Start(desc, func(ev netpoll.Event) {
-		if ev&(netpoll.EventReadHup|netpoll.EventHup) != 0 || client.AliveStat != base.AliveStatActive {
-			// When ReadHup or Hup received, this mean that client has
-			// closed at least write end of the connection or connections
-			// itself. So we want to stop receive events about such conn
-			// and remove it
-			poller.Stop(desc)
-			{
-				path := client.Path
-				client.CloseConn(CloseFrameNormalClosure)
-				client.MarkAsDeathIfConnDeath()
-
-				pathInitiator, ok := path.GetInitiator()
-				isPathInitClient := (ok && pathInitiator == client)
-				if isPathInitClient {
-					path.RemoveClient(client)
-				}
-				if (path.AliveStat&base.AliveStatDeath) != base.AliveStatDeath || isPathInitClient {
-					path.MarkAsDeath()
-					s.paths.RemovePath(path)
-					path.Prune(func(c *Client) bool {
-						c.CloseConn(CloseFrameNormalClosure)
-						c.MarkAsDeathIfConnDeath()
-						return true
-					})
-				}
-				return
-			}
-		}
-
-		s.wp.Submit(func() {
-			err := client.Receive()
-			if err != nil {
-				// When receive failed, we can only disconnect broken
-				// connection and stop to receive events about it.
-				poller.Stop(desc)
-				{
-					path := client.Path
-					client.CloseConn(CloseFrameNormalClosure)
-					client.MarkAsDeathIfConnDeath()
-
-					pathInitiator, ok := path.GetInitiator()
-					isPathInitClient := (ok && pathInitiator == client)
-					if isPathInitClient {
-						path.RemoveClient(client)
-					}
-					if (path.AliveStat&base.AliveStatDeath) != base.AliveStatDeath || isPathInitClient {
-						path.MarkAsDeath()
-						s.paths.RemovePath(path)
-						path.Prune(func(c *Client) bool {
-							c.CloseConn(CloseFrameNormalClosure)
-							c.MarkAsDeathIfConnDeath()
-							return true
-						})
-					}
-				}
-			}
-		})
-	})
-	// fire off the first message
-	// submitOutgoingMsg(client, SendServerHelloMsg)
 }
 
 // Write ..

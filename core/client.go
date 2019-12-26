@@ -86,6 +86,8 @@ type Client struct {
 func (c *Client) configureServerHello() {
 	// configure ServerHello
 	sc := c.machine.Configure(ServerHello)
+	sc.OnExit(handleOnExit)
+
 	// ServerHello->ClientHello
 	sc.PermitIf(GetClientHelloMsg, ClientHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -143,6 +145,8 @@ func (c *Client) configureServerHello() {
 func (c *Client) configureClientHello() {
 	// configure ClientHello
 	sc := c.machine.Configure(ClientHello)
+	sc.OnExit(handleOnExit)
+
 	// ClientHello->ClientAuth transition states the method below for responder handshake
 	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -181,6 +185,8 @@ func (c *Client) configureClientHello() {
 func (c *Client) configureClientAuth() {
 	// configure ClientAuth
 	sc := c.machine.Configure(ClientAuth)
+	sc.OnExit(handleOnExit)
+
 	// ClientAuth->ServerAuth
 	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -224,6 +230,8 @@ func (c *Client) configureClientAuth() {
 func (c *Client) configureServerAuth() {
 	// configure ServerAuth
 	sc := c.machine.Configure(ServerAuth)
+	sc.OnExit(handleOnExit)
+
 	// ServerAuth->NewInitiator(Responder)
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -287,18 +295,24 @@ func (c *Client) configureServerAuth() {
 func (c *Client) configureNewResponder() {
 	// configure NewResponder
 	sc := c.machine.Configure(NewResponder)
+	sc.OnExit(handleOnExit)
+
 	sc.SubstateOf(InitiatorSuperState)
 }
 
 func (c *Client) configureDropResponder() {
 	// configure DropResponder
 	sc := c.machine.Configure(DropResponder)
+	sc.OnExit(handleOnExit)
+
 	sc.SubstateOf(InitiatorSuperState)
 }
 
 func (c *Client) configureNewInitiator() {
 	// configure NewInitiator
 	sc := c.machine.Configure(NewInitiator)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -315,6 +329,8 @@ func (c *Client) configureNewInitiator() {
 func (c *Client) configureSendError() {
 	// configure SendError
 	sc := c.machine.Configure(SendError)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendSendErrorMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -335,6 +351,8 @@ func (c *Client) configureSendError() {
 func (c *Client) configureDisconnected() {
 	// configure Disconnected
 	sc := c.machine.Configure(Disconnected)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendDisconnectedMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -355,6 +373,8 @@ func (c *Client) configureDisconnected() {
 func (c *Client) configureInitiatorSuperState() {
 	// configure InitiatorSuperState
 	sc := c.machine.Configure(InitiatorSuperState)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 
 		return true
@@ -370,6 +390,7 @@ func (c *Client) configureInitiatorSuperState() {
 func (c *Client) configureClientConnected() {
 	// configure ClientConnected
 	sc := c.machine.Configure(ClientConnected)
+	sc.OnExit(handleOnExit)
 	// ClientConnected->ServerHello
 	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -383,6 +404,10 @@ func (c *Client) configureClientConnected() {
 		}
 		return true
 	})
+}
+
+func handleOnExit(trigger string, destState string) {
+	Sugar.Infof("OnExit: trigger: %s, destState: %s", trigger, destState)
 }
 
 // Init ..
