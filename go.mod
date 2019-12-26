@@ -3,7 +3,7 @@ module github.com/OguzhanE/saltyrtc-server-go
 go 1.12
 
 require (
-	github.com/OguzhanE/statmach v0.0.0-20190918205208-671b3e5dff87
+	github.com/OguzhanE/statmach v0.0.0-20191225184312-8b984a8084bc
 	github.com/gammazero/workerpool v0.0.0-20191005194639-971bc780f6d7
 	github.com/gobwas/httphead v0.0.0-20180130184737-2c6c146eadee // indirect
 	github.com/gobwas/pool v0.2.0 // indirect

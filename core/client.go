@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io/ioutil"
+	"strings"
 	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
@@ -52,13 +53,16 @@ const (
 	SendDisconnectedMsg = "sendDisconnectedMessage"
 )
 
+// CallbackBag ..
 type CallbackBag struct {
 	err error
 }
 
+// Client ..
 type Client struct {
 	mux     sync.Mutex
 	conn    *ClientConn
+	connx   *Conn
 	machine *statmach.StateMachine
 
 	ClientKey          [base.KeyBytesSize]byte
@@ -82,6 +86,8 @@ type Client struct {
 func (c *Client) configureServerHello() {
 	// configure ServerHello
 	sc := c.machine.Configure(ServerHello)
+	sc.OnExit(handleOnExit)
+
 	// ServerHello->ClientHello
 	sc.PermitIf(GetClientHelloMsg, ClientHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -139,6 +145,8 @@ func (c *Client) configureServerHello() {
 func (c *Client) configureClientHello() {
 	// configure ClientHello
 	sc := c.machine.Configure(ClientHello)
+	sc.OnExit(handleOnExit)
+
 	// ClientHello->ClientAuth transition states the method below for responder handshake
 	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -177,6 +185,8 @@ func (c *Client) configureClientHello() {
 func (c *Client) configureClientAuth() {
 	// configure ClientAuth
 	sc := c.machine.Configure(ClientAuth)
+	sc.OnExit(handleOnExit)
+
 	// ClientAuth->ServerAuth
 	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -205,8 +215,8 @@ func (c *Client) configureClientAuth() {
 			_, initiatorConnected := c.Path.GetInitiator()
 			msg = NewServerAuthMessageForResponder(base.Server, slotWrapper.allocatedIndex, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
 		}
-
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -220,6 +230,8 @@ func (c *Client) configureClientAuth() {
 func (c *Client) configureServerAuth() {
 	// configure ServerAuth
 	sc := c.machine.Configure(ServerAuth)
+	sc.OnExit(handleOnExit)
+
 	// ServerAuth->NewInitiator(Responder)
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
@@ -229,7 +241,8 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewInitiatorMessage(base.Server, c.Id)
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -251,7 +264,8 @@ func (c *Client) configureServerAuth() {
 			return false
 		}
 		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-		err = c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err = c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -281,18 +295,24 @@ func (c *Client) configureServerAuth() {
 func (c *Client) configureNewResponder() {
 	// configure NewResponder
 	sc := c.machine.Configure(NewResponder)
+	sc.OnExit(handleOnExit)
+
 	sc.SubstateOf(InitiatorSuperState)
 }
 
 func (c *Client) configureDropResponder() {
 	// configure DropResponder
 	sc := c.machine.Configure(DropResponder)
+	sc.OnExit(handleOnExit)
+
 	sc.SubstateOf(InitiatorSuperState)
 }
 
 func (c *Client) configureNewInitiator() {
 	// configure NewInitiator
 	sc := c.machine.Configure(NewInitiator)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -309,6 +329,8 @@ func (c *Client) configureNewInitiator() {
 func (c *Client) configureSendError() {
 	// configure SendError
 	sc := c.machine.Configure(SendError)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendSendErrorMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -329,6 +351,8 @@ func (c *Client) configureSendError() {
 func (c *Client) configureDisconnected() {
 	// configure Disconnected
 	sc := c.machine.Configure(Disconnected)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitReentryIf(SendDisconnectedMsg, func(params ...interface{}) bool {
 		return true
 	})
@@ -349,6 +373,8 @@ func (c *Client) configureDisconnected() {
 func (c *Client) configureInitiatorSuperState() {
 	// configure InitiatorSuperState
 	sc := c.machine.Configure(InitiatorSuperState)
+	sc.OnExit(handleOnExit)
+
 	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
 
 		return true
@@ -364,12 +390,14 @@ func (c *Client) configureInitiatorSuperState() {
 func (c *Client) configureClientConnected() {
 	// configure ClientConnected
 	sc := c.machine.Configure(ClientConnected)
+	sc.OnExit(handleOnExit)
 	// ClientConnected->ServerHello
 	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
 
 		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-		err := c.Send(msg.src, msg.dest, msg)
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err := c.Server.WriteCtrl(c.connx, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -378,6 +406,11 @@ func (c *Client) configureClientConnected() {
 	})
 }
 
+func handleOnExit(trigger string, destState string) {
+	Sugar.Infof("OnExit: trigger: %s, destState: %s", trigger, destState)
+}
+
+// Init ..
 func (c *Client) Init() {
 	// initial state
 	sm := statmach.New(ClientConnected)
@@ -406,7 +439,7 @@ func (c *Client) Init() {
 	c.configureDisconnected()
 }
 
-// todo: implement it properly
+// NewClient .. todo: implement it properly
 func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
@@ -426,10 +459,12 @@ func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox
 	}, nil
 }
 
+// GetCookieIn ..
 func (c *Client) GetCookieIn() []byte {
 	return c.cookieIn
 }
 
+// CheckAndSetCookieIn ..
 func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 	chkUp := base.NewCheckUp()
 	if c.cookieIn == nil {
@@ -448,9 +483,12 @@ func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 	return chkUp
 }
 
+// GetType ..
 func (c *Client) GetType() (base.AddressType, bool) {
 	return c.typeValue, c.typeHasValue
 }
+
+// SetType ..
 func (c *Client) SetType(t base.AddressType) {
 	c.typeHasValue = true
 	c.typeValue = t
@@ -508,22 +546,44 @@ func (c *Client) readIncomingMessage() (interface{}, error) {
 	return msg, nil
 }
 
-func (c *Client) Send(src base.AddressType, dest base.AddressType, payloadPacker PayloadPacker) error {
-	b, err := Pack(c, src, dest, payloadPacker)
+// Received ..
+func (c *Client) Received(b []byte) {
+
+	Sugar.Infof("WSDATA: %s\n", strings.TrimSpace(string(b)))
+
+	msgIncoming, err := Unpack(c, b, UnpackRaw)
+
 	if err != nil {
-		return err
+		Sugar.Error(err)
+		return
 	}
-	return wsutil.WriteServerBinary(c.conn, b)
+
+	if msgIncoming == nil {
+		// Handled some control message.
+		return
+	}
+	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
+		c.machine.Fire(GetClientHelloMsg, msg)
+	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
+		c.machine.Fire(GetClientAuthMsg, msg)
+	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
+		c.machine.Fire(GetDropResponderMsg, msg)
+	}
+	// todo: handle all messages
+	return
 }
 
+// MarkAsOrphan ..
 func (c *Client) MarkAsOrphan() {
 	c.AliveStat = base.MarkAsOrphan(c.AliveStat)
 }
 
+// MarkAsDeath ..
 func (c *Client) MarkAsDeath() {
 	c.AliveStat = base.MarkAsDeath(c.AliveStat)
 }
 
+// MarkAsDeathIfConnDeath ..
 func (c *Client) MarkAsDeathIfConnDeath() bool {
 	if (c.conn.AliveStat & base.AliveStatDeath) != base.AliveStatDeath {
 		c.AliveStat = base.MarkAsDeath(c.AliveStat)
@@ -532,6 +592,7 @@ func (c *Client) MarkAsDeathIfConnDeath() bool {
 	return false
 }
 
+// CloseConn ..
 func (c *Client) CloseConn(closeFrame []byte) error {
 	c.MarkAsOrphan()
 	return c.conn.Close(closeFrame)

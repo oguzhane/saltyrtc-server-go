@@ -1,22 +1,28 @@
 package core
 
 import (
-	"log"
+	"io"
+	"io/ioutil"
 	"net"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
-
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
+
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
 	"github.com/gammazero/workerpool"
 	ws "github.com/gobwas/ws"
-	"github.com/mailru/easygo/netpoll"
+	"github.com/gobwas/ws/wsutil"
 )
 
 const (
-	MaxJobs    = 32
+	// MaxJobs ..
+	MaxJobs = 32
+	// MaxWorkers ..
 	MaxWorkers = 8
 )
 
@@ -46,53 +52,132 @@ func NewServer() *Server {
 }
 
 // Start runs the server
-func (s *Server) Start(addr *string) error {
-	s.wp = workerpool.New(MaxWorkers)
+func (s *Server) Start(addr string) error {
 
-	// Initialize netpoll instance. We will use it to be noticed about incoming
-	// events from listener of user connections.
-	poller, err := netpoll.New(nil)
+	s.wp = workerpool.New(MaxWorkers)
+	var err error
+
+	ln := &listener{
+		network: "tcp",
+		addr:    addr,
+	}
+
+	ln.ln, err = net.Listen(ln.network, ln.addr)
 	if err != nil {
+		Sugar.Fatal(err)
+	}
+	ln.lnaddr = ln.ln.Addr()
+	Sugar.Infof("websocket is listening on %s\n", ln.lnaddr.String())
+
+	ln.system()
+
+	poll := evpoll.OpenPoll()
+	loop := &loop{
+		poll:    poll,
+		fdconns: make(map[int]*Conn),
+	}
+	poll.AddRead(ln.fd)
+	return poll.Wait(func(fd int, note interface{}) error {
+		Sugar.Infof("Trigger:fd: %v", fd)
+		if fd == 0 {
+			return loopNote(loop, note)
+		}
+		c := loop.fdconns[fd]
+		switch {
+		case c == nil:
+			return loopAccept(fd, loop, ln)
+		case !c.opened:
+			return loopOpened(loop, ln, c)
+		default:
+			return s.loopRead(loop, ln, c)
+		}
+	})
+}
+
+var tickStarted bool
+
+func (s *Server) handleTick(c *Conn) {
+	if tickStarted {
+		return
+	}
+	tickStarted = true
+	go func() {
+		for _ = range time.Tick(time.Second * 5) {
+			// s.Write(c, []byte("ping"), "myCtx", func(ctx interface{}, err error) {
+			// 	Sugar.Info(ctx, err)
+			// })
+			s.WriteCtrl(c, []byte("ping"))
+		}
+	}()
+}
+
+func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
+	if !c.upgraded {
+		err := s.handleNewConn(l, ln, c)
+		if c.upgraded {
+			submitOutgoingMsg(l, c.client, SendServerHelloMsg) // should we fire off by poll.Trigger?
+		}
 		return err
 	}
 
-	// Create incoming connections listener.
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	Sugar.Infof("websocket is listening on %s", ln.Addr().String())
-
-	// Create netpoll descriptor for the listener.
-	// We use OneShot here to manually resume events stream when we want to.
-	acceptDesc := netpoll.Must(netpoll.HandleListener(
-		ln, netpoll.EventRead|netpoll.EventOneShot,
-	))
-
-	// accept is a channel to signal about next incoming connection Accept()
-	// results.
-	poller.Start(acceptDesc, func(e netpoll.Event) {
-		s.wp.Submit(func() {
-
-			conn, err := ln.Accept()
-			if err != nil {
-				Sugar.Error(err)
-				return
-			}
-			s.handleNewConnection(poller, conn)
-		})
-
-		poller.Resume(acceptDesc)
-	})
-
+	s.handleReceive(l, ln, c)
 	return nil
 }
 
-func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
-	// NOTE: we wrap conn here to show that ws could work with any kind of
-	// io.ReadWriter.
-	clientConn := NewClientConn(&conn, time.Millisecond*100)
+func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
+	Sugar.Info("Inside handleReceive")
+	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+
+	if err != nil {
+		Sugar.Error(err)
+		if _, ok := err.(*ws.ProtocolError); ok || err == syscall.EAGAIN {
+			io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
+			return
+		}
+
+		l.poll.ModDetach(c.fd)
+		loopCloseConn(l, c, nil)
+		return
+	}
+
+	if h.OpCode.IsControl() {
+		if h.OpCode == ws.OpClose {
+			l.poll.ModDetach(c.fd)
+		} else if h.OpCode == ws.OpPing {
+			l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
+			defer l.poll.ModRead(c.fd)
+		}
+
+		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
+
+		if err != nil || h.OpCode == ws.OpClose {
+			Sugar.Error(err)
+
+			if err == syscall.EAGAIN {
+				return
+			}
+			Sugar.Info("connection closing..")
+			loopCloseConn(l, c, nil)
+		}
+		return
+	}
+
+	s.wp.Submit(func() {
+		b, err := ioutil.ReadAll(r)
+		if h.OpCode.IsData() && err == nil {
+			Sugar.Info("Submit")
+			Sugar.Info("Call client.Received")
+			c.client.Received(b)
+			return
+		}
+		Sugar.Error(err)
+	})
+}
+
+func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error) {
+	l.poll.ModReadWrite(c.fd)
+	defer l.poll.ModRead(c.fd)
+
 	initiatorKey := ""
 	upgrader := ws.Upgrader{
 		OnRequest: func(uri []byte) error {
@@ -100,128 +185,186 @@ func (s *Server) handleNewConnection(poller netpoll.Poller, conn net.Conn) {
 			return hexutil.IsValidHexPathString(initiatorKey)
 		},
 	}
+
 	// Zero-copy upgrade to WebSocket connection.
-	_, err := upgrader.Upgrade(clientConn)
+	_, err := upgrader.Upgrade(c.netConn)
 
 	if err != nil {
-		Sugar.Debugf("%s: upgrade error: %+v", conn.RemoteAddr().String(), err)
-		clientConn.Close(CloseFrameProtocolError)
-		return
+		if err == syscall.EAGAIN {
+			return nil
+		}
+		Sugar.Error(err)
+		return loopCloseConn(l, c, nil)
 	}
 
 	initiatorKeyBytes, err := hexutil.HexStringToBytes32(initiatorKey)
 	if err != nil {
 		Sugar.Error("Closing due to invalid key:", initiatorKey)
-		clientConn.Close(CloseFrameInvalidKey)
-		return
+		loopCloseConn(l, c, CloseFrameInvalidKey)
+		// clientConn.Close(CloseFrameInvalidKey) // **cls
+		return err
 	}
+
 	var client *Client
 	box, err := boxkeypair.GenerateBoxKeyPair()
 	if err == nil {
 		// TODO: we should keep oldPath unless handshake for newPath is completed
 		path, oldPath := s.paths.Add(initiatorKey)
 		if oldPath != nil && path != oldPath {
-			oldPath.MarkAsDeath()
-			path.Prune(func(c *Client) bool {
-				c.CloseConn(CloseFrameNormalClosure)
-				c.MarkAsDeathIfConnDeath()
-				return true
-			})
+			Sugar.Warn("path != oldPath")
+			// oldPath.MarkAsDeath() // **cls
+			// path.Prune(func(c *Client) bool {
+			// 	c.CloseConn(CloseFrameNormalClosure)
+			// 	c.MarkAsDeathIfConnDeath()
+			// 	return true
+			// })
 		}
 		defaultPermanentBox := s.permanentBoxes[0]
-		client, err = NewClient(&clientConn, *initiatorKeyBytes, defaultPermanentBox, box)
+		client, err = NewClient(nil, *initiatorKeyBytes, defaultPermanentBox, box)
 		client.Path = path
 		client.Server = s
 	}
 	if err != nil || client == nil {
 		Sugar.Error("Closing due to internal err:", err)
-		clientConn.Close(CloseFrameInternalError)
-		return
+		loopCloseConn(l, c, CloseFrameInternalError)
+		// clientConn.Close(CloseFrameInternalError) // **cls
+		return err
 	}
+
 	// initialize the client
+	c.client = client
+	client.connx = c
 	client.Init()
+	c.upgraded = true
 	Sugar.Infof("Connection established. key:%s", initiatorKey)
-	// Create netpoll event descriptor for conn.
-	// We want to handle only read events of it.
-	desc := netpoll.Must(netpoll.HandleRead(conn))
-
-	// Subscribe to events about conn.
-	poller.Start(desc, func(ev netpoll.Event) {
-		if ev&(netpoll.EventReadHup|netpoll.EventHup) != 0 || client.AliveStat != base.AliveStatActive {
-			// When ReadHup or Hup received, this mean that client has
-			// closed at least write end of the connection or connections
-			// itself. So we want to stop receive events about such conn
-			// and remove it
-			poller.Stop(desc)
-			{
-				path := client.Path
-				client.CloseConn(CloseFrameNormalClosure)
-				client.MarkAsDeathIfConnDeath()
-
-				pathInitiator, ok := path.GetInitiator()
-				isPathInitClient := (ok && pathInitiator == client)
-				if isPathInitClient {
-					path.RemoveClient(client)
-				}
-				if (path.AliveStat&base.AliveStatDeath) != base.AliveStatDeath || isPathInitClient {
-					path.MarkAsDeath()
-					s.paths.RemovePath(path)
-					path.Prune(func(c *Client) bool {
-						c.CloseConn(CloseFrameNormalClosure)
-						c.MarkAsDeathIfConnDeath()
-						return true
-					})
-				}
-				return
-			}
-		}
-
-		s.wp.Submit(func() {
-			err := client.Receive()
-			if err != nil {
-				// When receive failed, we can only disconnect broken
-				// connection and stop to receive events about it.
-				poller.Stop(desc)
-				{
-					path := client.Path
-					client.CloseConn(CloseFrameNormalClosure)
-					client.MarkAsDeathIfConnDeath()
-
-					pathInitiator, ok := path.GetInitiator()
-					isPathInitClient := (ok && pathInitiator == client)
-					if isPathInitClient {
-						path.RemoveClient(client)
-					}
-					if (path.AliveStat&base.AliveStatDeath) != base.AliveStatDeath || isPathInitClient {
-						path.MarkAsDeath()
-						s.paths.RemovePath(path)
-						path.Prune(func(c *Client) bool {
-							c.CloseConn(CloseFrameNormalClosure)
-							c.MarkAsDeathIfConnDeath()
-							return true
-						})
-					}
-				}
-			}
-		})
-	})
-	// fire off the first message
-	handleOutgoingMsg(client, SendServerHelloMsg)
+	return nil
 }
 
-func handleOutgoingMsg(client *Client, trigger string) {
+// Write ..
+func (s *Server) Write(c *Conn, data []byte, ctx interface{}, cb func(ctx interface{}, err error)) {
+	c.loop.poll.Trigger(&loopWriteNote{c: c, data: data, ctx: ctx, cb: cb})
+}
+
+// WriteCtrl ..
+func (s *Server) WriteCtrl(c *Conn, data []byte) error {
+	c.loop.poll.ModReadWrite(c.fd)
+	defer c.loop.poll.ModRead(c.fd)
+	return wsutil.WriteServerBinary(c.netConn, data)
+}
+
+func loopNote(l *loop, note interface{}) error {
+	var err error
+	switch v := note.(type) {
+	case error: // shutdown
+		err = v
+	case *loopWriteNote:
+		// Wake called for connection
+		if l.fdconns[v.c.fd] != v.c {
+			return nil // ignore stale wakes
+		}
+		return handleLoopWrite(l, v)
+	}
+	return err
+}
+
+func loopAccept(fd int, l *loop, ln *listener) error {
+	if fd == ln.fd {
+		conn, err := ln.ln.Accept()
+		nfd := socketFD(conn)
+		if err != nil {
+			if err == syscall.EAGAIN {
+				return nil
+			}
+			conn.Close()
+			return err
+		}
+
+		if err := syscall.SetNonblock(nfd, true); err != nil {
+			conn.Close()
+			return err
+		}
+
+		c := &Conn{netConn: conn, fd: nfd, loop: l}
+		l.fdconns[c.fd] = c
+		l.poll.AddReadWrite(c.fd)
+		atomic.AddInt32(&l.count, 1)
+	}
+	return nil
+}
+
+func loopOpened(l *loop, ln *listener, c *Conn) error {
+	c.opened = true
+	c.remoteAddr = c.netConn.RemoteAddr()
+	l.poll.ModRead(c.fd)
+	return nil
+}
+
+func loopCloseConn(l *loop, c *Conn, preWrite []byte) error {
+	if preWrite != nil {
+		c.netConn.Write(preWrite)
+	}
+	atomic.AddInt32(&l.count, -1)
+	delete(l.fdconns, c.fd)
+	syscall.Close(c.fd)
+	return nil
+}
+
+func submitOutgoingMsg(l *loop, client *Client, trigger string) {
 	server := client.Server
 	server.wp.Submit(func() {
+		Sugar.Infof("about to submit outgoing msg. trigger: %s", trigger)
 		client.mux.Lock()
 		defer client.mux.Unlock()
 		if trigger == SendServerHelloMsg {
 			cb := &CallbackBag{}
-			ok, errx := client.machine.Fire(SendServerHelloMsg, cb)
-			Sugar.Infof("cb:%#v\nok:%#v\nerrx:%#v\n", cb, ok, errx)
+			ok, err := client.machine.Fire(SendServerHelloMsg, cb)
+			Sugar.Infof("cb.err:%#v ok:%#v err:%#v", cb.err, ok, err)
 			if !ok && cb.err != nil {
 				// todo: handle errors gracefully
-				client.conn.Close(CloseFrameInternalError)
+				// client.conn.Close(CloseFrameInternalError)
+				loopCloseConn(l, client.connx, CloseFrameInternalError)
 			}
 		}
 	})
+
+	// go func() {
+	// 	time.Sleep(time.Second * 8)
+	// 	Sugar.Info("ready to fire-off")
+	// 	client.mux.Lock()
+	// 	defer client.mux.Unlock()
+	// 	if trigger == SendServerHelloMsg {
+	// 		cb := &CallbackBag{}
+	// 		ok, errx := client.machine.Fire(SendServerHelloMsg, cb)
+	// 		Sugar.Infof("cb:%#v ok:%#v err:%#v", cb, ok, errx)
+	// 		if !ok && cb.err != nil {
+	// 			// todo: handle errors gracefully
+	// 			// client.conn.Close(CloseFrameInternalError)
+	// 			loopCloseConn(l, client.connx, CloseFrameInternalError)
+	// 		}
+	// 	}
+	// }()
+
+}
+
+func handleLoopWrite(l *loop, note *loopWriteNote) error {
+	l.poll.ModReadWrite(note.c.fd)
+	defer l.poll.ModRead(note.c.fd)
+	err := wsutil.WriteServerBinary(note.c.netConn, note.data)
+	if err != nil {
+		Sugar.Error(err)
+		if err == syscall.EAGAIN {
+			note.cb(note.ctx, err)
+			return nil
+		}
+		loopCloseConn(l, note.c, nil)
+	}
+	note.cb(note.ctx, err) // should we invoke callback by poll.Trigger??
+	return nil
+}
+
+type loopWriteNote struct {
+	c    *Conn
+	data []byte
+	ctx  interface{}
+	cb   func(ctx interface{}, err error)
 }
