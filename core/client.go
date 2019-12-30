@@ -3,7 +3,6 @@ package core
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
 	"strings"
 	"sync"
 
@@ -13,8 +12,6 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/randutil"
-	ws "github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 
 	"github.com/OguzhanE/statmach"
 )
@@ -61,8 +58,7 @@ type CallbackBag struct {
 // Client ..
 type Client struct {
 	mux     sync.Mutex
-	conn    *ClientConn
-	connx   *Conn
+	conn    *Conn
 	machine *statmach.StateMachine
 
 	ClientKey          [base.KeyBytesSize]byte
@@ -191,38 +187,42 @@ func (c *Client) configureClientAuth() {
 	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
 		var msg *ServerAuthMessage
-		var slotWrapper *SlotWrapper
-
-		defer func() {
-			if slotWrapper != nil && !slotWrapper.committed {
-				slotWrapper.Abort()
-			}
-		}()
 
 		if clientType, _ := c.GetType(); clientType == base.Initiator {
+			// slotWrapper = c.Path.SetInitiator(c)
+			msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
+			data, _ := Pack(c, msg.src, msg.dest, msg)
+			err := c.Server.WriteCtrl(c.conn, data)
+			if err != nil {
+				bag.err = err
+				return false
+			}
+
 			if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
 				// todo: kill prevClient
 			}
-			slotWrapper = c.Path.SetInitiator(c)
-			msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, c.Path.GetResponderIds())
-		} else {
-			var err error
-			slotWrapper, err = c.Path.AddResponder(c)
-			if err != nil { // responder
-				bag.err = errors.New("Path Full")
-				return false
-			}
-			_, initiatorConnected := c.Path.GetInitiator()
-			msg = NewServerAuthMessageForResponder(base.Server, slotWrapper.allocatedIndex, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected)
+			c.Path.SetInitiator(c)
+			c.Authenticated = true
+			return true
 		}
+
+		slotID, err := c.Path.AddResponder(c)
+		if err != nil { // responder
+			c.Path.Del(slotID)
+			bag.err = errors.New("Path Full")
+			return false
+		}
+		clientInit, initiatorConnected := c.Path.GetInitiator()
+		msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
+
 		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.connx, data)
+		err = c.Server.WriteCtrl(c.conn, data)
 		if err != nil {
 			bag.err = err
 			return false
 		}
+		c.Id = slotID
 		c.Authenticated = true
-		slotWrapper.Commit()
 		return true
 	})
 }
@@ -235,14 +235,14 @@ func (c *Client) configureServerAuth() {
 	// ServerAuth->NewInitiator(Responder)
 	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
 		bag, _ := params[0].(*CallbackBag)
-		slot, ok := c.Path.GetInitiator()
-		if initiator := slot.(*Client); !ok || initiator == nil || initiator.Id == c.Id {
-			bag.err = errors.New("no initiator")
+		initiator, ok := c.Path.GetInitiator()
+		if !ok || initiator.Id == c.Id || !initiator.Authenticated {
+			bag.err = errors.New("no authenticated initiator")
 			return false
 		}
 		msg := NewNewInitiatorMessage(base.Server, c.Id)
 		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.connx, data)
+		err := c.Server.WriteCtrl(c.conn, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -258,14 +258,14 @@ func (c *Client) configureServerAuth() {
 			bag.err = errors.New("invalid responder")
 			return false
 		}
-		slot, err := c.Path.FindClientByID(responderID)
-		if responder := slot.(*Client); err != nil || responder == nil || !responder.Authenticated {
+		responder, ok := c.Path.Get(responderID)
+		if !ok || !responder.Authenticated {
 			bag.err = errors.New("responder doesnt exist on the path")
 			return false
 		}
 		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
 		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err = c.Server.WriteCtrl(c.connx, data)
+		err := c.Server.WriteCtrl(c.conn, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -397,7 +397,7 @@ func (c *Client) configureClientConnected() {
 
 		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
 		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.connx, data)
+		err := c.Server.WriteCtrl(c.conn, data)
 		if err != nil {
 			bag.err = err
 			return false
@@ -440,7 +440,7 @@ func (c *Client) Init() {
 }
 
 // NewClient .. todo: implement it properly
-func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
+func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
 		return nil, err
@@ -450,7 +450,6 @@ func NewClient(conn *ClientConn, clientKey [base.KeyBytesSize]byte, permanentBox
 		return nil, err
 	}
 	return &Client{
-		conn:                      conn,
 		ClientKey:                 clientKey,
 		CookieOut:                 cookieOut,
 		CombinedSequenceNumberOut: NewCombinedSequenceNumber(initialSeqNum),
@@ -494,58 +493,6 @@ func (c *Client) SetType(t base.AddressType) {
 	c.typeValue = t
 }
 
-// Receive reads next message from Client's underlying connection.
-// It blocks until full message received.
-func (c *Client) Receive() error {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	msgIncoming, err := c.readIncomingMessage()
-	if err != nil {
-		// c.conn.Close()
-		// todo: close connection
-		return err
-	}
-	if msgIncoming == nil {
-		// Handled some control message.
-		return nil
-	}
-	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
-		c.machine.Fire(GetClientHelloMsg, msg)
-	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
-		c.machine.Fire(GetClientAuthMsg, msg)
-	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
-		c.machine.Fire(GetDropResponderMsg, msg)
-	}
-	// todo: handle all messages
-	return nil
-}
-
-// readIncomingMessage reads and unpacks received data from connection.
-// It takes io mutex.
-func (c *Client) readIncomingMessage() (interface{}, error) {
-	h, r, err := wsutil.NextReader(c.conn, ws.StateServerSide)
-	if err != nil {
-		return nil, err
-	}
-	if h.OpCode.IsControl() {
-		return nil, wsutil.ControlFrameHandler(c.conn, ws.StateServerSide)(h, r)
-	}
-	// read all raw data
-	b, err := ioutil.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-
-	// try to unpack data in order to obtain message
-	msg, err := Unpack(c, b, UnpackRaw)
-	if err != nil {
-		return nil, err
-	}
-
-	return msg, nil
-}
-
 // Received ..
 func (c *Client) Received(b []byte) {
 
@@ -573,27 +520,14 @@ func (c *Client) Received(b []byte) {
 	return
 }
 
-// MarkAsOrphan ..
-func (c *Client) MarkAsOrphan() {
-	c.AliveStat = base.MarkAsOrphan(c.AliveStat)
-}
-
-// MarkAsDeath ..
-func (c *Client) MarkAsDeath() {
-	c.AliveStat = base.MarkAsDeath(c.AliveStat)
-}
-
-// MarkAsDeathIfConnDeath ..
-func (c *Client) MarkAsDeathIfConnDeath() bool {
-	if (c.conn.AliveStat & base.AliveStatDeath) != base.AliveStatDeath {
-		c.AliveStat = base.MarkAsDeath(c.AliveStat)
-		return true
+func getAuthenticatedResponderIds(p *Path) []base.AddressType {
+	ids := []base.AddressType{}
+	for kv := range p.Iter() {
+		k, _ := kv.Key.(base.AddressType)
+		v, _ := kv.Value.(*Client)
+		if v.Authenticated {
+			ids = append(ids, k)
+		}
 	}
-	return false
-}
-
-// CloseConn ..
-func (c *Client) CloseConn(closeFrame []byte) error {
-	c.MarkAsOrphan()
-	return c.conn.Close(closeFrame)
+	return ids
 }
