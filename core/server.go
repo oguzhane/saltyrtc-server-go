@@ -209,18 +209,9 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	box, err := boxkeypair.GenerateBoxKeyPair()
 	if err == nil {
 		// TODO: we should keep oldPath unless handshake for newPath is completed
-		path, oldPath := s.paths.Add(initiatorKey)
-		if oldPath != nil && path != oldPath {
-			Sugar.Warn("path != oldPath")
-			// oldPath.MarkAsDeath() // **cls
-			// path.Prune(func(c *Client) bool {
-			// 	c.CloseConn(CloseFrameNormalClosure)
-			// 	c.MarkAsDeathIfConnDeath()
-			// 	return true
-			// })
-		}
+		path, _ := s.paths.GetOrCreate(initiatorKey)
 		defaultPermanentBox := s.permanentBoxes[0]
-		client, err = NewClient(nil, *initiatorKeyBytes, defaultPermanentBox, box)
+		client, err = NewClient(c, *initiatorKeyBytes, defaultPermanentBox, box)
 		client.Path = path
 		client.Server = s
 	}
@@ -233,7 +224,6 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 
 	// initialize the client
 	c.client = client
-	client.connx = c
 	client.Init()
 	c.upgraded = true
 	Sugar.Infof("Connection established. key:%s", initiatorKey)
@@ -322,7 +312,7 @@ func submitOutgoingMsg(l *loop, client *Client, trigger string) {
 			if !ok && cb.err != nil {
 				// todo: handle errors gracefully
 				// client.conn.Close(CloseFrameInternalError)
-				loopCloseConn(l, client.connx, CloseFrameInternalError)
+				loopCloseConn(l, client.conn, CloseFrameInternalError)
 			}
 		}
 	})

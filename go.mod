@@ -4,6 +4,8 @@ go 1.12
 
 require (
 	github.com/OguzhanE/statmach v0.0.0-20191225184312-8b984a8084bc
+	github.com/cornelk/hashmap v1.0.1
+	github.com/dchest/siphash v1.2.1 // indirect
 	github.com/gammazero/workerpool v0.0.0-20191005194639-971bc780f6d7
 	github.com/gobwas/httphead v0.0.0-20180130184737-2c6c146eadee // indirect
 	github.com/gobwas/pool v0.2.0 // indirect
