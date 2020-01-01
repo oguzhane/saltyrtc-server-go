@@ -12,54 +12,21 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/randutil"
-
-	"github.com/OguzhanE/statmach"
 )
 
 // STATES
 const (
-	None            = "None"
-	ClientConnected = "client-connected" // waiting for server-hello message
-	ServerHello     = "server-hello"
-	ClientHello     = "client-hello"
-	ClientAuth      = "client-auth"
-	ServerAuth      = "server-auth"
-
-	NewResponder  = "new-responder"
-	DropResponder = "drop-responder"
-
-	NewInitiator = "new-itiator"
-
-	SendError    = "send-error"
-	Disconnected = "disconnected"
-
-	InitiatorSuperState = "initiator-super-state"
-	ResponderSuperState = "responder-super-state"
+	None = iota + 1
+	ServerHello
+	ClientHello
+	ClientAuth
+	ServerAuth
 )
-
-// Triggers
-const (
-	SendServerHelloMsg  = "sendServerHelloMessage"
-	GetClientHelloMsg   = "getClientHelloMessage"
-	GetClientAuthMsg    = "getClientAuthMessage"
-	SendServerAuthMsg   = "sendServerAuthMessage"
-	SendNewInitiatorMsg = "sendNewInitiatorMessage"
-	SendNewResponderMsg = "sendNewResponderMessage"
-	GetDropResponderMsg = "getDropResponderMessage"
-	SendSendErrorMsg    = "sendSendErrorMessage"
-	SendDisconnectedMsg = "sendDisconnectedMessage"
-)
-
-// CallbackBag ..
-type CallbackBag struct {
-	err error
-}
 
 // Client ..
 type Client struct {
-	mux     sync.Mutex
-	conn    *Conn
-	machine *statmach.StateMachine
+	mux  sync.Mutex
+	conn *Conn
 
 	ClientKey          [base.KeyBytesSize]byte
 	ServerSessionBox   *boxkeypair.BoxKeyPair
@@ -77,369 +44,10 @@ type Client struct {
 	Path          *Path
 	Server        *Server
 	AliveStat     base.AliveStatType
+	State         int
 }
 
-func (c *Client) configureServerHello() {
-	// configure ServerHello
-	sc := c.machine.Configure(ServerHello)
-	sc.OnExit(handleOnExit)
-
-	// ServerHello->ClientHello
-	sc.PermitIf(GetClientHelloMsg, ClientHello, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		msg, _ := params[1].(*ClientHelloMessage)
-
-		_, hasType := c.GetType()
-		if hasType {
-			bag.err = errors.New("client already has type")
-			return false
-		}
-		if naclutil.IsValidBoxPkBytes(msg.clientPublicKey) {
-			bag.err = errors.New("invalid client public key length")
-			return false
-		}
-		c.SetType(base.Responder)
-		copy(c.ClientKey[:], msg.clientPublicKey[0:base.KeyBytesSize])
-		return true
-	})
-
-	// ServerHello->ClientAuth transition states the method below for initiator handshake
-	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		msg, _ := params[1].(*ClientAuthMessage)
-		// validate your_cookie with cookieOut
-		if !bytes.Equal(msg.serverCookie, c.CookieOut) {
-			bag.err = errors.New("Cookies do not match")
-			return false
-		}
-		presentSubprotocols := arrayutil.IntersectionStr(msg.subprotocols, c.Server.subprotocols)
-		if len(presentSubprotocols) == 0 || presentSubprotocols[0] != c.Server.subprotocol {
-			bag.err = errors.New("Invalid subprotocol")
-			return false
-		}
-		// todo impl. ping(ing) logic
-		if len(c.Server.permanentBoxes) == 0 {
-			bag.err = errors.New("the server does not have a permanent key pair")
-			return false
-		}
-		for _, box := range c.Server.permanentBoxes {
-			if box.PkEqualTo(msg.serverKey) {
-				// box is selected for further usage
-				c.ServerPermanentBox = box.Clone()
-				break
-			}
-		}
-		if c.ServerPermanentBox == nil {
-			bag.err = errors.New("yourKey matches none of the server permanent key pairs")
-			return false
-		}
-		c.SetType(base.Initiator)
-		return true
-	})
-}
-
-func (c *Client) configureClientHello() {
-	// configure ClientHello
-	sc := c.machine.Configure(ClientHello)
-	sc.OnExit(handleOnExit)
-
-	// ClientHello->ClientAuth transition states the method below for responder handshake
-	sc.PermitIf(GetClientAuthMsg, ClientAuth, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		msg, _ := params[1].(*ClientAuthMessage)
-		// validate your_cookie with cookieOut
-		if !bytes.Equal(msg.serverCookie, c.CookieOut) {
-			bag.err = errors.New("Cookies do not match")
-			return false
-		}
-		presentSubprotocols := arrayutil.IntersectionStr(msg.subprotocols, c.Server.subprotocols)
-		if len(presentSubprotocols) == 0 || presentSubprotocols[0] != c.Server.subprotocol {
-			bag.err = errors.New("Invalid subprotocol")
-			return false
-		}
-		// todo impl. ping(ing) logic
-		if len(c.Server.permanentBoxes) == 0 {
-			bag.err = errors.New("the server does not have a permanent key pair")
-			return false
-		}
-		for _, box := range c.Server.permanentBoxes {
-			if box.PkEqualTo(msg.serverKey) {
-				// box is selected for further usage
-				c.ServerPermanentBox = box.Clone()
-				break
-			}
-		}
-		if c.ServerPermanentBox == nil {
-			bag.err = errors.New("yourKey matches none of the server permanent key pairs")
-			return false
-		}
-
-		return true
-	})
-}
-
-func (c *Client) configureClientAuth() {
-	// configure ClientAuth
-	sc := c.machine.Configure(ClientAuth)
-	sc.OnExit(handleOnExit)
-
-	// ClientAuth->ServerAuth
-	sc.PermitIf(SendServerAuthMsg, ServerAuth, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		var msg *ServerAuthMessage
-
-		if clientType, _ := c.GetType(); clientType == base.Initiator {
-			// slotWrapper = c.Path.SetInitiator(c)
-			msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
-			data, _ := Pack(c, msg.src, msg.dest, msg)
-			err := c.Server.WriteCtrl(c.conn, data)
-			if err != nil {
-				bag.err = err
-				return false
-			}
-
-			if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
-				// todo: kill prevClient
-			}
-			c.Path.SetInitiator(c)
-			c.Authenticated = true
-			return true
-		}
-
-		slotID, err := c.Path.AddResponder(c)
-		if err != nil { // responder
-			c.Path.Del(slotID)
-			bag.err = errors.New("Path Full")
-			return false
-		}
-		clientInit, initiatorConnected := c.Path.GetInitiator()
-		msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
-
-		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err = c.Server.WriteCtrl(c.conn, data)
-		if err != nil {
-			bag.err = err
-			return false
-		}
-		c.Id = slotID
-		c.Authenticated = true
-		return true
-	})
-}
-
-func (c *Client) configureServerAuth() {
-	// configure ServerAuth
-	sc := c.machine.Configure(ServerAuth)
-	sc.OnExit(handleOnExit)
-
-	// ServerAuth->NewInitiator(Responder)
-	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		initiator, ok := c.Path.GetInitiator()
-		if !ok || initiator.Id == c.Id || !initiator.Authenticated {
-			bag.err = errors.New("no authenticated initiator")
-			return false
-		}
-		msg := NewNewInitiatorMessage(base.Server, c.Id)
-		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.conn, data)
-		if err != nil {
-			bag.err = err
-			return false
-		}
-		return true
-	})
-
-	// ServerAuth->NewResponder(Initiator)
-	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-		responderID, _ := params[1].(base.AddressType)
-		if responderID <= base.Initiator {
-			bag.err = errors.New("invalid responder")
-			return false
-		}
-		responder, ok := c.Path.Get(responderID)
-		if !ok || !responder.Authenticated {
-			bag.err = errors.New("responder doesnt exist on the path")
-			return false
-		}
-		msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.conn, data)
-		if err != nil {
-			bag.err = err
-			return false
-		}
-		return true
-	})
-
-	// ServerAuth->DropResponder(Initiator)
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
-		// bag, _ := params[0].(*CallbackBag)
-		// dropResponderMsg, _ := params[1].(*DropResponderMessage)
-		// todo close conn
-		return true
-	})
-
-	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
-
-		return true
-	})
-	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
-
-		return true
-	})
-
-}
-
-func (c *Client) configureNewResponder() {
-	// configure NewResponder
-	sc := c.machine.Configure(NewResponder)
-	sc.OnExit(handleOnExit)
-
-	sc.SubstateOf(InitiatorSuperState)
-}
-
-func (c *Client) configureDropResponder() {
-	// configure DropResponder
-	sc := c.machine.Configure(DropResponder)
-	sc.OnExit(handleOnExit)
-
-	sc.SubstateOf(InitiatorSuperState)
-}
-
-func (c *Client) configureNewInitiator() {
-	// configure NewInitiator
-	sc := c.machine.Configure(NewInitiator)
-	sc.OnExit(handleOnExit)
-
-	sc.PermitReentryIf(SendNewInitiatorMsg, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
-
-		return true
-	})
-	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
-
-		return true
-	})
-}
-
-func (c *Client) configureSendError() {
-	// configure SendError
-	sc := c.machine.Configure(SendError)
-	sc.OnExit(handleOnExit)
-
-	sc.PermitReentryIf(SendSendErrorMsg, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
-		return true
-	})
-}
-
-func (c *Client) configureDisconnected() {
-	// configure Disconnected
-	sc := c.machine.Configure(Disconnected)
-	sc.OnExit(handleOnExit)
-
-	sc.PermitReentryIf(SendDisconnectedMsg, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendNewInitiatorMsg, NewInitiator, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendNewResponderMsg, NewResponder, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
-		return true
-	})
-}
-
-func (c *Client) configureInitiatorSuperState() {
-	// configure InitiatorSuperState
-	sc := c.machine.Configure(InitiatorSuperState)
-	sc.OnExit(handleOnExit)
-
-	sc.PermitIf(GetDropResponderMsg, DropResponder, func(params ...interface{}) bool {
-
-		return true
-	})
-	sc.PermitIf(SendSendErrorMsg, SendError, func(params ...interface{}) bool {
-		return true
-	})
-	sc.PermitIf(SendDisconnectedMsg, Disconnected, func(params ...interface{}) bool {
-		return true
-	})
-}
-
-func (c *Client) configureClientConnected() {
-	// configure ClientConnected
-	sc := c.machine.Configure(ClientConnected)
-	sc.OnExit(handleOnExit)
-	// ClientConnected->ServerHello
-	sc.PermitIf(SendServerHelloMsg, ServerHello, func(params ...interface{}) bool {
-		bag, _ := params[0].(*CallbackBag)
-
-		msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err := c.Server.WriteCtrl(c.conn, data)
-		if err != nil {
-			bag.err = err
-			return false
-		}
-		return true
-	})
-}
-
-func handleOnExit(trigger string, destState string) {
-	Sugar.Infof("OnExit: trigger: %s, destState: %s", trigger, destState)
-}
-
-// Init ..
-func (c *Client) Init() {
-	// initial state
-	sm := statmach.New(ClientConnected)
-	c.machine = sm
-
-	c.configureClientConnected()
-
-	c.configureServerHello()
-
-	c.configureClientHello()
-
-	c.configureClientAuth()
-
-	c.configureServerAuth()
-
-	c.configureNewResponder()
-
-	c.configureDropResponder()
-
-	c.configureInitiatorSuperState()
-
-	c.configureNewInitiator()
-
-	c.configureSendError()
-
-	c.configureDisconnected()
-}
-
-// NewClient .. todo: implement it properly
+// NewClient ..
 func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
@@ -450,11 +58,13 @@ func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sess
 		return nil, err
 	}
 	return &Client{
+		conn:                      conn,
 		ClientKey:                 clientKey,
 		CookieOut:                 cookieOut,
 		CombinedSequenceNumberOut: NewCombinedSequenceNumber(initialSeqNum),
 		ServerPermanentBox:        permanentBox,
 		ServerSessionBox:          sessionBox,
+		State:                     None,
 	}, nil
 }
 
@@ -510,13 +120,175 @@ func (c *Client) Received(b []byte) {
 		return
 	}
 	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
-		c.machine.Fire(GetClientHelloMsg, msg)
+		c.handleClientHello(msg)
 	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
-		c.machine.Fire(GetClientAuthMsg, msg)
+		c.handleClientAuth(msg)
 	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
-		c.machine.Fire(GetDropResponderMsg, msg)
+		c.handleDropResponder(msg)
 	}
 	// todo: handle all messages
+	return
+}
+
+func (c *Client) sendServerHello() (err error) {
+	msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
+	data, _ := Pack(c, msg.src, msg.dest, msg)
+	err = c.Server.WriteCtrl(c.conn, data)
+	if err == nil {
+		c.State = ServerHello
+		return
+	}
+	c.conn.Close(nil, false)
+	if c.Path.slots.Len() == 0 {
+		c.Server.paths.hmap.Del(c.Path.key)
+	}
+	return
+}
+
+func (c *Client) sendServerAuth() (err error) {
+	var msg *ServerAuthMessage
+
+	if clientType, _ := c.GetType(); clientType == base.Initiator {
+
+		msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
+		data, _ := Pack(c, msg.src, msg.dest, msg)
+		err = c.Server.WriteCtrl(c.conn, data)
+		if err != nil {
+			return
+		}
+
+		if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
+			// todo: kill prevClient
+		}
+		c.Path.SetInitiator(c)
+		c.Authenticated = true
+		c.State = ServerAuth
+		// Todo: send "new-initiator" message to responders
+		return
+	}
+	// server-auth for responder
+	slotID, err := c.Path.AddResponder(c)
+	if err != nil {
+		c.Path.Del(slotID)
+		err = errors.New("Path Full")
+		c.conn.Close(CloseFramePathFullError, false)
+		return
+	}
+	clientInit, initiatorConnected := c.Path.GetInitiator()
+	msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
+
+	data, _ := Pack(c, msg.src, msg.dest, msg)
+	err = c.Server.WriteCtrl(c.conn, data)
+	if err != nil {
+		return
+	}
+	c.Id = slotID
+	c.Authenticated = true
+	c.State = ServerAuth
+	// Todo: send "new-responder" message to initiator
+	return
+}
+
+// c is responder which will get the message
+func sendNewInitiatorMessage(c *Client) (err error) {
+	initiator, ok := c.Path.GetInitiator()
+	if !ok || initiator.Id == c.Id || !initiator.Authenticated {
+		err = errors.New("no authenticated initiator")
+		return
+	}
+	msg := NewNewInitiatorMessage(base.Server, c.Id)
+	data, _ := Pack(c, msg.src, msg.dest, msg)
+	err = c.Server.WriteCtrl(c.conn, data)
+	return
+}
+
+// c is initiator which will get the message
+func sendNewResponderMessage(c *Client, responderID base.AddressType) (err error) {
+	if responderID <= base.Initiator {
+		err = errors.New("invalid responder")
+		return
+	}
+	responder, ok := c.Path.Get(responderID)
+	if !ok || !responder.Authenticated {
+		err = errors.New("responder doesnt exist on the path")
+		return
+	}
+	msg := NewNewResponderMessage(base.Server, c.Id, responderID)
+	data, _ := Pack(c, msg.src, msg.dest, msg)
+	err = c.Server.WriteCtrl(c.conn, data)
+
+	return
+}
+
+func (c *Client) handleClientHello(msg *ClientHelloMessage) (err error) {
+	_, hasType := c.GetType()
+	if hasType {
+		err = errors.New("client already has type")
+		return
+	}
+	if naclutil.IsValidBoxPkBytes(msg.clientPublicKey) {
+		err = errors.New("invalid client public key length")
+		return
+	}
+	copy(c.ClientKey[:], msg.clientPublicKey[0:base.KeyBytesSize])
+	c.SetType(base.Responder)
+	c.State = ClientHello
+	return
+}
+
+func (c *Client) handleClientAuth(msg *ClientAuthMessage) (err error) {
+	// validate your_cookie with cookieOut
+	if !bytes.Equal(msg.serverCookie, c.CookieOut) {
+		err = errors.New("Cookies do not match")
+		return
+	}
+
+	presentSubprotocols := arrayutil.IntersectionStr(msg.subprotocols, c.Server.subprotocols)
+	if len(presentSubprotocols) == 0 || presentSubprotocols[0] != c.Server.subprotocol {
+		err = errors.New("Invalid subprotocol")
+		return
+	}
+
+	if len(c.Server.permanentBoxes) == 0 {
+		err = errors.New("the server does not have a permanent key pair")
+		return
+	}
+
+	for _, box := range c.Server.permanentBoxes {
+		if box.PkEqualTo(msg.serverKey) {
+			// select server permanent box for further use
+			c.ServerPermanentBox = box.Clone()
+			break
+		}
+	}
+	if c.ServerPermanentBox == nil {
+		err = errors.New("yourKey matches none of the server permanent key pairs")
+		return
+	}
+
+	// todo impl. ping(ing) logic
+
+	// ServerHello->ClientAuth transition states the method below for initiator handshake
+	if c.State == ServerHello {
+		c.SetType(base.Initiator)
+	}
+	c.State = ClientAuth
+	return
+}
+
+func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
+	if !c.Authenticated || c.typeValue != base.Initiator {
+		err = errors.New("client is not Authenticated or not initiator")
+		return
+	}
+	responder, ok := c.Path.Get(msg.responderId)
+	if !ok {
+		err = errors.New("Responder does not exist on the path")
+		return
+	}
+	c.Path.Del(msg.responderId)
+	closeFrame := getCloseFrameByCode(msg.reason, CloseFrameDropByInitiator)
+	responder.conn.Close(closeFrame, true)
 	return
 }
 
