@@ -115,7 +115,7 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 	if !c.upgraded {
 		err := s.handleNewConn(l, ln, c)
 		if c.upgraded {
-			submitOutgoingMsg(l, c.client, SendServerHelloMsg) // should we fire off by poll.Trigger?
+			submitServerHello(l, c.client, SendServerHelloMsg) // should we fire off by poll.Trigger?
 		}
 		return err
 	}
@@ -224,7 +224,6 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 
 	// initialize the client
 	c.client = client
-	client.Init()
 	c.upgraded = true
 	Sugar.Infof("Connection established. key:%s", initiatorKey)
 	return nil
@@ -299,22 +298,13 @@ func loopCloseConn(l *loop, c *Conn, preWrite []byte) error {
 	return nil
 }
 
-func submitOutgoingMsg(l *loop, client *Client, trigger string) {
+func submitServerHello(l *loop, client *Client, trigger string) {
 	server := client.Server
 	server.wp.Submit(func() {
 		Sugar.Infof("about to submit outgoing msg. trigger: %s", trigger)
 		client.mux.Lock()
 		defer client.mux.Unlock()
-		if trigger == SendServerHelloMsg {
-			cb := &CallbackBag{}
-			ok, err := client.machine.Fire(SendServerHelloMsg, cb)
-			Sugar.Infof("cb.err:%#v ok:%#v err:%#v", cb.err, ok, err)
-			if !ok && cb.err != nil {
-				// todo: handle errors gracefully
-				// client.conn.Close(CloseFrameInternalError)
-				loopCloseConn(l, client.conn, CloseFrameInternalError)
-			}
-		}
+		client.sendServerHello()
 	})
 
 	// go func() {

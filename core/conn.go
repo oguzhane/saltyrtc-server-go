@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"net"
 	"reflect"
 	"syscall"
@@ -56,6 +57,7 @@ type Conn struct {
 	netConn    net.Conn
 	upgraded   bool // upgraded to ws protocol
 	client     *Client
+	closed     bool
 }
 
 func socketFD(conn net.Conn) int {
@@ -78,4 +80,61 @@ func buildCloseFrame(code int, reason string) []byte {
 			ws.StatusAbnormalClosure, reason,
 		)),
 	)
+}
+
+func (c *Conn) Close(preWrite []byte, modRW bool) error {
+	if c.closed {
+		return errors.New("connection already closed")
+	}
+	if modRW {
+		c.loop.poll.ModReadWrite(c.fd)
+		defer c.loop.poll.ModRead(c.fd)
+	}
+	loopCloseConn(c.loop, c, preWrite)
+	c.closed = true
+	return nil
+}
+
+func getCloseFrameByCode(code int, defaultFrame []byte) (closeFrame []byte) {
+	switch code {
+	case base.CloseCodeNormalClosure:
+		closeFrame = CloseFrameNormalClosure
+		break
+	case base.CloseCodeGoingAway:
+		closeFrame = CloseFrameGoingAway
+		break
+	case base.CloseCodeSubprotocolError:
+		closeFrame = CloseFrameSubprotocolError
+		break
+	case base.CloseCodePathFullError:
+		closeFrame = CloseFramePathFullError
+		break
+	case base.CloseCodeProtocolError:
+		closeFrame = CloseFrameProtocolError
+		break
+	case base.CloseCodeInternalError:
+		closeFrame = CloseFrameInternalError
+		break
+	case base.CloseCodeHandover:
+		closeFrame = CloseFrameHandover
+		break
+	case base.CloseCodeDropByInitiator:
+		closeFrame = CloseFrameDropByInitiator
+		break
+	case base.CloseCodeInitiatorCouldNotDecrypt:
+		closeFrame = CloseFrameSubprotocolError
+		break
+	case base.CloseCodeNoSharedTasks:
+		closeFrame = CloseFrameNoSharedTasks
+		break
+	case base.CloseCodeInvalidKey:
+		closeFrame = CloseFrameInvalidKey
+		break
+	case base.CloseCodeTimeout:
+		closeFrame = CloseFrameTimeout
+		break
+	default:
+		closeFrame = defaultFrame
+	}
+	return
 }
