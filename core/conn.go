@@ -82,14 +82,11 @@ func buildCloseFrame(code int, reason string) []byte {
 	)
 }
 
-func (c *Conn) Close(preWrite []byte, modRW bool) error {
+func (c *Conn) Close(preWrite []byte) error {
 	if c.closed {
 		return errors.New("connection already closed")
 	}
-	if modRW {
-		c.loop.poll.ModReadWrite(c.fd)
-		defer c.loop.poll.ModRead(c.fd)
-	}
+	c.loop.poll.ModDetach(c.fd)
 	loopCloseConn(c.loop, c, preWrite)
 	c.closed = true
 	return nil

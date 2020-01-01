@@ -138,7 +138,7 @@ func (c *Client) sendServerHello() (err error) {
 		c.State = ServerHello
 		return
 	}
-	c.conn.Close(nil, false)
+	c.conn.Close(nil)
 	if c.Path.slots.Len() == 0 {
 		c.Server.paths.hmap.Del(c.Path.key)
 	}
@@ -171,7 +171,7 @@ func (c *Client) sendServerAuth() (err error) {
 	if err != nil {
 		c.Path.Del(slotID)
 		err = errors.New("Path Full")
-		c.conn.Close(CloseFramePathFullError, false)
+		c.conn.Close(CloseFramePathFullError)
 		return
 	}
 	clientInit, initiatorConnected := c.Path.GetInitiator()
@@ -288,7 +288,7 @@ func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
 	}
 	c.Path.Del(msg.responderId)
 	closeFrame := getCloseFrameByCode(msg.reason, CloseFrameDropByInitiator)
-	responder.conn.Close(closeFrame, true)
+	responder.conn.Close(closeFrame)
 	return
 }
 
