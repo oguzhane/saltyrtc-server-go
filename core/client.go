@@ -16,42 +16,12 @@ import (
 
 // STATES
 const (
-	None            = "None"
-	ClientConnected = "client-connected" // waiting for server-hello message
-	ServerHello     = "server-hello"
-	ClientHello     = "client-hello"
-	ClientAuth      = "client-auth"
-	ServerAuth      = "server-auth"
-
-	NewResponder  = "new-responder"
-	DropResponder = "drop-responder"
-
-	NewInitiator = "new-itiator"
-
-	SendError    = "send-error"
-	Disconnected = "disconnected"
-
-	InitiatorSuperState = "initiator-super-state"
-	ResponderSuperState = "responder-super-state"
+	None = iota + 1
+	ServerHello
+	ClientHello
+	ClientAuth
+	ServerAuth
 )
-
-// Triggers
-const (
-	SendServerHelloMsg  = "sendServerHelloMessage"
-	GetClientHelloMsg   = "getClientHelloMessage"
-	GetClientAuthMsg    = "getClientAuthMessage"
-	SendServerAuthMsg   = "sendServerAuthMessage"
-	SendNewInitiatorMsg = "sendNewInitiatorMessage"
-	SendNewResponderMsg = "sendNewResponderMessage"
-	GetDropResponderMsg = "getDropResponderMessage"
-	SendSendErrorMsg    = "sendSendErrorMessage"
-	SendDisconnectedMsg = "sendDisconnectedMessage"
-)
-
-// CallbackBag ..
-type CallbackBag struct {
-	err error
-}
 
 // Client ..
 type Client struct {
@@ -74,7 +44,7 @@ type Client struct {
 	Path          *Path
 	Server        *Server
 	AliveStat     base.AliveStatType
-	State         string
+	State         int
 }
 
 // NewClient ..
@@ -192,6 +162,7 @@ func (c *Client) sendServerAuth() (err error) {
 		}
 		c.Path.SetInitiator(c)
 		c.Authenticated = true
+		c.State = ServerAuth
 		// Todo: send "new-initiator" message to responders
 		return
 	}
@@ -213,6 +184,7 @@ func (c *Client) sendServerAuth() (err error) {
 	}
 	c.Id = slotID
 	c.Authenticated = true
+	c.State = ServerAuth
 	// Todo: send "new-responder" message to initiator
 	return
 }
@@ -297,7 +269,7 @@ func (c *Client) handleClientAuth(msg *ClientAuthMessage) (err error) {
 	// todo impl. ping(ing) logic
 
 	// ServerHello->ClientAuth transition states the method below for initiator handshake
-	if c.State == base.ServerHello {
+	if c.State == ServerHello {
 		c.SetType(base.Initiator)
 	}
 	c.State = ClientAuth

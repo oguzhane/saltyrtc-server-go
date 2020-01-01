@@ -115,7 +115,7 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 	if !c.upgraded {
 		err := s.handleNewConn(l, ln, c)
 		if c.upgraded {
-			submitServerHello(l, c.client, SendServerHelloMsg) // should we fire off by poll.Trigger?
+			submitServerHello(l, c.client) // should we fire off by poll.Trigger?
 		}
 		return err
 	}
@@ -298,10 +298,10 @@ func loopCloseConn(l *loop, c *Conn, preWrite []byte) error {
 	return nil
 }
 
-func submitServerHello(l *loop, client *Client, trigger string) {
+func submitServerHello(l *loop, client *Client) {
 	server := client.Server
 	server.wp.Submit(func() {
-		Sugar.Infof("about to submit outgoing msg. trigger: %s", trigger)
+		Sugar.Infof("about to submit server hello msg.")
 		client.mux.Lock()
 		defer client.mux.Unlock()
 		client.sendServerHello()
