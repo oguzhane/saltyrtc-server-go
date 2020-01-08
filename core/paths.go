@@ -23,11 +23,18 @@ func NewPaths() *Paths {
 // GetOrCreate ..
 func (paths *Paths) GetOrCreate(key string) (*Path, bool) {
 	v, ok := paths.hmap.Get(key)
-	if p := v.(*Path); ok && !p.orphan {
+	if p, _ := v.(*Path); ok && !p.orphan {
 		return p, true
 	}
 	num := atomic.AddUint32(&paths.number, 1)
 	p := NewPath(key, num)
 	paths.hmap.Set(key, p)
 	return p, false
+}
+
+// Prune ..
+func (paths *Paths) Prune(p *Path) {
+	if p.slots.Len() == 0 {
+		paths.hmap.Del(p.key)
+	}
 }
