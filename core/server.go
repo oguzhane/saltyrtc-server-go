@@ -37,12 +37,10 @@ type Server struct {
 }
 
 // NewServer creates new server instance
-func NewServer() *Server {
-	defaultBox, _ := boxkeypair.GenerateBoxKeyPair()
+func NewServer(permanentBox boxkeypair.BoxKeyPair) *Server {
 	permanentBoxes := []*boxkeypair.BoxKeyPair{
-		defaultBox,
+		&permanentBox,
 	}
-	Sugar.Infof("defaultServerBoxPk: %x", defaultBox.Pk)
 	return &Server{
 		paths:          NewPaths(),
 		subprotocols:   []string{base.SubprotocolSaltyRTCv1},
@@ -135,15 +133,16 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 			return
 		}
 
-		l.poll.ModDetach(c.fd)
-		loopCloseConn(l, c, nil)
+		// l.poll.ModDetach(c.fd)
+		// loopCloseConn(l, c, nil)
+		Sugar.Info("connection closing..")
+		c.Close(nil)
+		s.paths.Prune(c.client.Path)
 		return
 	}
 
 	if h.OpCode.IsControl() {
-		if h.OpCode == ws.OpClose {
-			l.poll.ModDetach(c.fd)
-		} else if h.OpCode == ws.OpPing {
+		if h.OpCode == ws.OpPing {
 			l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
 			defer l.poll.ModRead(c.fd)
 		}
@@ -157,7 +156,9 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 				return
 			}
 			Sugar.Info("connection closing..")
-			loopCloseConn(l, c, nil)
+			// loopCloseConn(l, c, nil)
+			c.Close(nil)
+			s.paths.Prune(c.client.Path)
 		}
 		return
 	}
@@ -217,8 +218,9 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	}
 	if err != nil || client == nil {
 		Sugar.Error("Closing due to internal err:", err)
-		loopCloseConn(l, c, CloseFrameInternalError)
-		// clientConn.Close(CloseFrameInternalError) // **cls
+		client.conn.Close(CloseFrameInternalError)
+		s.paths.Prune(client.Path)
+		// loopCloseConn(l, c, CloseFrameInternalError)
 		return err
 	}
 
