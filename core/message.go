@@ -295,6 +295,7 @@ func encodePayload(payload interface{}) ([]byte, error) {
 	b := new(bytes.Buffer)
 	bw := bufio.NewWriter(b)
 	h := new(codec.MsgpackHandle)
+	h.WriteExt = true
 	enc := codec.NewEncoder(bw, h)
 	err := enc.Encode(payload)
 	if err != nil {
@@ -307,6 +308,7 @@ func encodePayload(payload interface{}) ([]byte, error) {
 
 func decodePayload(encodedPayload []byte) (PayloadUnion, error) {
 	h := new(codec.MsgpackHandle)
+	h.WriteExt = true
 	h.ErrorIfNoField = true
 	dec := codec.NewDecoderBytes(encodedPayload, h)
 	v := PayloadUnion{}
