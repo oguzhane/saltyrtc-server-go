@@ -3,7 +3,6 @@ package core
 import (
 	"bytes"
 	"errors"
-	"strings"
 	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
@@ -106,8 +105,6 @@ func (c *Client) SetType(t base.AddressType) {
 // Received ..
 func (c *Client) Received(b []byte) {
 
-	Sugar.Infof("WSDATA: %s\n", strings.TrimSpace(string(b)))
-
 	msgIncoming, err := Unpack(c, b, UnpackRaw)
 
 	if err != nil {
@@ -122,7 +119,12 @@ func (c *Client) Received(b []byte) {
 	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
 		c.handleClientHello(msg)
 	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
-		c.handleClientAuth(msg)
+		err := c.handleClientAuth(msg)
+		if err == nil {
+			c.Server.wp.Submit(func() {
+				c.sendServerAuth()
+			})
+		}
 	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
 		c.handleDropResponder(msg)
 	}

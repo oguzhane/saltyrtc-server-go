@@ -23,7 +23,7 @@ type PayloadUnion struct {
 	PingInterval       uint32           `codec:"ping_interval,omitempty"`
 	YourKey            []byte           `codec:"your_key,omitempty"`
 	InitiatorConnected bool             `codec:"initiator_connected,omitempty"`
-	Responders         []uint8          `codec:"responders,omitempty"`
+	Responders         []uint16         `codec:"responders,omitempty"`
 	SignedKeys         []byte           `codec:"signed_keys,omitempty"`
 	Id                 interface{}      `codec:"id,omitempty"`
 	Reason             int              `codec:"reason,omitempty"`
@@ -530,7 +530,7 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 		return nil, err
 	}
 
-	if m.towardsInitiator {
+	if !m.towardsInitiator {
 		if m.signKeys {
 			payload = struct {
 				Type               base.MessageType `codec:"type"`
@@ -555,27 +555,33 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 			}
 		}
 	} else {
+
+		responderArr := make([]uint16, len(m.responderIds))
+		for i, v := range m.responderIds {
+			responderArr[i] = uint16(v)
+		}
+
 		if m.signKeys {
 			payload = struct {
 				Type       base.MessageType `codec:"type"`
 				YourCookie []byte           `codec:"your_cookie"`
-				Responders []uint8          `codec:"responders"`
+				Responders []uint16         `codec:"responders"`
 				SignedKeys []byte           `codec:"signed_keys"`
 			}{
 				Type:       base.ServerAuth,
 				YourCookie: m.clientCookie,
-				Responders: m.responderIds,
+				Responders: responderArr,
 				SignedKeys: signKeys(client, nonce),
 			}
 		} else {
 			payload = struct {
 				Type       base.MessageType `codec:"type"`
 				YourCookie []byte           `codec:"your_cookie"`
-				Responders []uint8          `codec:"responders"`
+				Responders []uint16         `codec:"responders"`
 			}{
 				Type:       base.ServerAuth,
 				YourCookie: m.clientCookie,
-				Responders: m.responderIds,
+				Responders: responderArr,
 			}
 		}
 	}
