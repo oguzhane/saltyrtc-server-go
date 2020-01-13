@@ -16,9 +16,10 @@ type Path struct {
 
 func NewPath(key string, number uint32) *Path {
 	return &Path{
-		key:    key,
-		number: number,
-		slots:  &hm.HashMap{},
+		key:      key,
+		number:   number,
+		slots:    &hm.HashMap{},
+		lastSlot: base.Initiator,
 	}
 }
 

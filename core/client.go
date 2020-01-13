@@ -228,7 +228,7 @@ func (c *Client) handleClientHello(msg *ClientHelloMessage) (err error) {
 		err = errors.New("client already has type")
 		return
 	}
-	if naclutil.IsValidBoxPkBytes(msg.clientPublicKey) {
+	if !naclutil.IsValidBoxPkBytes(msg.clientPublicKey) {
 		err = errors.New("invalid client public key length")
 		return
 	}
