@@ -147,6 +147,24 @@ func (c *Client) sendServerHello() (err error) {
 	return
 }
 
+func (c *Client) sendNewInitiator() (err error) {
+	msg := NewNewInitiatorMessage(base.Server, c.Id)
+	data, err := Pack(c, msg.src, msg.dest, msg)
+	if err == nil {
+		err = c.Server.WriteCtrl(c.conn, data)
+	}
+	return
+}
+
+func (c *Client) sendNewResponder(responderID uint8) (err error) {
+	msg := NewNewResponderMessage(base.Server, c.Id, responderID)
+	data, err := Pack(c, msg.src, msg.dest, msg)
+	if err == nil {
+		err = c.Server.WriteCtrl(c.conn, data)
+	}
+	return
+}
+
 func (c *Client) sendServerAuth() (err error) {
 	var msg *ServerAuthMessage
 
@@ -166,6 +184,9 @@ func (c *Client) sendServerAuth() (err error) {
 		c.Authenticated = true
 		c.State = ServerAuth
 		// Todo: send "new-initiator" message to responders
+		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
+			r.sendNewInitiator()
+		})
 		return
 	}
 	// server-auth for responder
@@ -188,6 +209,9 @@ func (c *Client) sendServerAuth() (err error) {
 	c.Authenticated = true
 	c.State = ServerAuth
 	// Todo: send "new-responder" message to initiator
+	if initiator, ok := c.Path.GetInitiator(); ok && initiator.Authenticated {
+		initiator.sendNewResponder(c.Id)
+	}
 	return
 }
 
@@ -304,4 +328,13 @@ func getAuthenticatedResponderIds(p *Path) []base.AddressType {
 		}
 	}
 	return ids
+}
+
+func iterOnAuthenticatedResponders(p *Path, handler func(c *Client)) {
+	for kv := range p.Iter() {
+		v, _ := kv.Value.(*Client)
+		if v.Authenticated {
+			handler(v)
+		}
+	}
 }

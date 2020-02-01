@@ -123,12 +123,17 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 }
 
 func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
+	c.client.mux.Lock()
+
 	Sugar.Info("Inside handleReceive")
+
 	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
 
 	if err != nil {
+		defer c.client.mux.Unlock()
+
 		Sugar.Error(err)
-		if _, ok := err.(*ws.ProtocolError); ok || err == syscall.EAGAIN {
+		if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
 			io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 			return
 		}
@@ -142,6 +147,8 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 	}
 
 	if h.OpCode.IsControl() {
+		defer c.client.mux.Unlock()
+
 		if h.OpCode == ws.OpPing {
 			l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
 			defer l.poll.ModRead(c.fd)
@@ -164,6 +171,7 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 	}
 
 	s.wp.Submit(func() {
+		defer c.client.mux.Unlock()
 		b, err := ioutil.ReadAll(r)
 		if h.OpCode.IsData() && err == nil {
 			Sugar.Info("Submit")
