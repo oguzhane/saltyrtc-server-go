@@ -141,6 +141,7 @@ func (c *Client) sendServerHello() (err error) {
 		return
 	}
 	c.conn.Close(nil)
+	c.DelFromPath()
 	if c.Path.slots.Len() == 0 {
 		c.Server.paths.hmap.Del(c.Path.key)
 	}

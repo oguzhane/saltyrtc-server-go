@@ -142,6 +142,7 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 		// loopCloseConn(l, c, nil)
 		Sugar.Info("connection closing..")
 		c.Close(nil)
+		c.client.DelFromPath()
 		s.paths.Prune(c.client.Path)
 		return
 	}
@@ -211,7 +212,6 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	if err != nil {
 		Sugar.Error("Closing due to invalid key:", initiatorKey)
 		loopCloseConn(l, c, CloseFrameInvalidKey)
-		// clientConn.Close(CloseFrameInvalidKey) // **cls
 		return err
 	}
 
