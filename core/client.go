@@ -181,8 +181,10 @@ func (c *Client) sendServerAuth() (err error) {
 			// todo: kill prevClient
 		}
 		c.Path.SetInitiator(c)
+		c.Id = base.Initiator
 		c.Authenticated = true
 		c.State = ServerAuth
+		Sugar.Info("Authenticated Initiator: ", base.Initiator)
 		// Todo: send "new-initiator" message to responders
 		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
 			r.sendNewInitiator()
@@ -208,41 +210,12 @@ func (c *Client) sendServerAuth() (err error) {
 	c.Id = slotID
 	c.Authenticated = true
 	c.State = ServerAuth
+	Sugar.Info("Authenticated Responder: ", slotID)
+
 	// Todo: send "new-responder" message to initiator
 	if initiator, ok := c.Path.GetInitiator(); ok && initiator.Authenticated {
 		initiator.sendNewResponder(c.Id)
 	}
-	return
-}
-
-// c is responder which will get the message
-func sendNewInitiatorMessage(c *Client) (err error) {
-	initiator, ok := c.Path.GetInitiator()
-	if !ok || initiator.Id == c.Id || !initiator.Authenticated {
-		err = errors.New("no authenticated initiator")
-		return
-	}
-	msg := NewNewInitiatorMessage(base.Server, c.Id)
-	data, _ := Pack(c, msg.src, msg.dest, msg)
-	err = c.Server.WriteCtrl(c.conn, data)
-	return
-}
-
-// c is initiator which will get the message
-func sendNewResponderMessage(c *Client, responderID base.AddressType) (err error) {
-	if responderID <= base.Initiator {
-		err = errors.New("invalid responder")
-		return
-	}
-	responder, ok := c.Path.Get(responderID)
-	if !ok || !responder.Authenticated {
-		err = errors.New("responder doesnt exist on the path")
-		return
-	}
-	msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-	data, _ := Pack(c, msg.src, msg.dest, msg)
-	err = c.Server.WriteCtrl(c.conn, data)
-
 	return
 }
 
@@ -318,12 +291,17 @@ func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
 	return
 }
 
+func (c *Client) DelFromPath() {
+	if c.Authenticated {
+		c.Path.Del(c.Id)
+	}
+}
 func getAuthenticatedResponderIds(p *Path) []base.AddressType {
 	ids := []base.AddressType{}
 	for kv := range p.Iter() {
 		k, _ := kv.Key.(base.AddressType)
 		v, _ := kv.Value.(*Client)
-		if v.Authenticated {
+		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == base.Responder {
 			ids = append(ids, k)
 		}
 	}
@@ -333,7 +311,7 @@ func getAuthenticatedResponderIds(p *Path) []base.AddressType {
 func iterOnAuthenticatedResponders(p *Path, handler func(c *Client)) {
 	for kv := range p.Iter() {
 		v, _ := kv.Value.(*Client)
-		if v.Authenticated {
+		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == base.Responder {
 			handler(v)
 		}
 	}

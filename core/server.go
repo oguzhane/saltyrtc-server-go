@@ -165,6 +165,7 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 			Sugar.Info("connection closing..")
 			// loopCloseConn(l, c, nil)
 			c.Close(nil)
+			c.client.DelFromPath()
 			s.paths.Prune(c.client.Path)
 		}
 		return
