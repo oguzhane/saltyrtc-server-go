@@ -74,9 +74,12 @@ func (s *Server) Start(addr string) error {
 		poll:    poll,
 		fdconns: make(map[int]*Conn),
 	}
-	poll.AddRead(ln.fd)
+	poll.AddReadOnce(ln.fd)
 	return poll.Wait(func(fd int, note interface{}) error {
 		Sugar.Infof("Trigger:fd: %v", fd)
+		if fd == ln.fd {
+			defer poll.ModReadOnce(fd)
+		}
 		if fd == 0 {
 			return loopNote(loop, note)
 		}
@@ -123,56 +126,59 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 }
 
 func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
-	c.client.mux.Lock()
-
 	Sugar.Info("Inside handleReceive")
 
-	h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+	s.wp.Submit(func() {
+		Sugar.Info("Inside handleReceive#Submit")
+		c.client.mux.Lock()
 
-	if err != nil {
-		defer c.client.mux.Unlock()
+		Sugar.Info("<----NextReader")
+		h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+		Sugar.Info("---->NextReader")
 
-		Sugar.Error(err)
-		if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
-			io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
-			return
-		}
+		if err != nil {
+			defer c.client.mux.Unlock()
 
-		// l.poll.ModDetach(c.fd)
-		// loopCloseConn(l, c, nil)
-		Sugar.Info("connection closing..")
-		c.Close(nil)
-		c.client.DelFromPath()
-		s.paths.Prune(c.client.Path)
-		return
-	}
-
-	if h.OpCode.IsControl() {
-		defer c.client.mux.Unlock()
-
-		if h.OpCode == ws.OpPing {
-			l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
-			defer l.poll.ModRead(c.fd)
-		}
-
-		err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
-
-		if err != nil || h.OpCode == ws.OpClose {
 			Sugar.Error(err)
-
-			if err == syscall.EAGAIN {
+			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
+				io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 				return
 			}
-			Sugar.Info("connection closing..")
+
+			// l.poll.ModDetach(c.fd)
 			// loopCloseConn(l, c, nil)
+			Sugar.Info("connection closing..")
 			c.Close(nil)
 			c.client.DelFromPath()
 			s.paths.Prune(c.client.Path)
+			return
 		}
-		return
-	}
 
-	s.wp.Submit(func() {
+		if h.OpCode.IsControl() {
+			defer c.client.mux.Unlock()
+
+			if h.OpCode == ws.OpPing {
+				l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
+				defer l.poll.ModRead(c.fd)
+			}
+
+			err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
+
+			if err != nil || h.OpCode == ws.OpClose {
+				Sugar.Error(err)
+
+				if err == syscall.EAGAIN {
+					return
+				}
+				Sugar.Info("connection closing..")
+				// loopCloseConn(l, c, nil)
+				c.Close(nil)
+				c.client.DelFromPath()
+				s.paths.Prune(c.client.Path)
+			}
+			return
+		}
+
 		defer c.client.mux.Unlock()
 		b, err := ioutil.ReadAll(r)
 		if h.OpCode.IsData() && err == nil {
