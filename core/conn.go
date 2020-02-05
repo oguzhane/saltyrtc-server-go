@@ -82,6 +82,7 @@ func buildCloseFrame(code int, reason string) []byte {
 	)
 }
 
+// Close ..
 func (c *Conn) Close(preWrite []byte) error {
 	if c.closed {
 		return errors.New("connection already closed")

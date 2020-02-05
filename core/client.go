@@ -82,11 +82,10 @@ func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 		}
 		chkUp.Push(func() error { c.cookieIn = cookieIn; return nil })
 		return chkUp
-	} else {
-		if !bytes.Equal(c.cookieIn, cookieIn) {
-			chkUp.SetErr(errors.New("Client cookie is not changeable"))
-			return chkUp
-		}
+	}
+	if !bytes.Equal(c.cookieIn, cookieIn) {
+		chkUp.SetErr(errors.New("Client cookie is not changeable"))
+		return chkUp
 	}
 	return chkUp
 }
@@ -292,6 +291,7 @@ func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
 	return
 }
 
+// DelFromPath ..
 func (c *Client) DelFromPath() {
 	if c.Authenticated {
 		c.Path.Del(c.Id)

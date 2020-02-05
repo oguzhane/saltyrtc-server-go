@@ -14,6 +14,7 @@ type Path struct {
 	orphan   bool
 }
 
+// NewPath ..
 func NewPath(key string, number uint32) *Path {
 	return &Path{
 		key:      key,
