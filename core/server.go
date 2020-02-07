@@ -131,63 +131,27 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 	s.wp.Submit(func() {
 		Sugar.Info("Inside handleReceive#Submit")
 		c.client.mux.Lock()
+		defer c.client.mux.Unlock()
 
 		Sugar.Info("<----NextReader")
-		h, r, err := wsutil.NextReader(c.netConn, ws.StateServerSide)
+		data, _, err := wsutil.ReadClientData(c.netConn)
 		Sugar.Info("---->NextReader")
-
 		if err != nil {
-			defer c.client.mux.Unlock()
-
 			Sugar.Error(err)
+
 			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
 				io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 				return
 			}
-
-			// l.poll.ModDetach(c.fd)
-			// loopCloseConn(l, c, nil)
 			Sugar.Info("connection closing..")
 			c.Close(nil)
 			c.client.DelFromPath()
 			s.paths.Prune(c.client.Path)
 			return
 		}
-
-		if h.OpCode.IsControl() {
-			defer c.client.mux.Unlock()
-
-			if h.OpCode == ws.OpPing {
-				l.poll.ModReadWrite(c.fd) // enable read-write mode to be able to write into header if OpCode is Ping or Close
-				defer l.poll.ModRead(c.fd)
-			}
-
-			err := wsutil.ControlFrameHandler(c.netConn, ws.StateServerSide)(h, r)
-
-			if err != nil || h.OpCode == ws.OpClose {
-				Sugar.Error(err)
-
-				if err == syscall.EAGAIN {
-					return
-				}
-				Sugar.Info("connection closing..")
-				// loopCloseConn(l, c, nil)
-				c.Close(nil)
-				c.client.DelFromPath()
-				s.paths.Prune(c.client.Path)
-			}
-			return
-		}
-
-		defer c.client.mux.Unlock()
-		b, err := ioutil.ReadAll(r)
-		if h.OpCode.IsData() && err == nil {
-			Sugar.Info("Submit")
-			Sugar.Info("Call client.Received")
-			c.client.Received(b)
-			return
-		}
-		Sugar.Error(err)
+		Sugar.Info("Submit")
+		Sugar.Info("Call client.Received")
+		c.client.Received(data)
 	})
 }
 
@@ -323,24 +287,6 @@ func submitServerHello(l *loop, client *Client) {
 		defer client.mux.Unlock()
 		client.sendServerHello()
 	})
-
-	// go func() {
-	// 	time.Sleep(time.Second * 8)
-	// 	Sugar.Info("ready to fire-off")
-	// 	client.mux.Lock()
-	// 	defer client.mux.Unlock()
-	// 	if trigger == SendServerHelloMsg {
-	// 		cb := &CallbackBag{}
-	// 		ok, errx := client.machine.Fire(SendServerHelloMsg, cb)
-	// 		Sugar.Infof("cb:%#v ok:%#v err:%#v", cb, ok, errx)
-	// 		if !ok && cb.err != nil {
-	// 			// todo: handle errors gracefully
-	// 			// client.conn.Close(CloseFrameInternalError)
-	// 			loopCloseConn(l, client.connx, CloseFrameInternalError)
-	// 		}
-	// 	}
-	// }()
-
 }
 
 func handleLoopWrite(l *loop, note *loopWriteNote) error {
