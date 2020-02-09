@@ -11,40 +11,40 @@ import (
 )
 
 // CloseFrameNormalClosure //
-var CloseFrameNormalClosure = buildCloseFrame(base.CloseCodeNormalClosure, "")
+var CloseFrameNormalClosure = compileCloseFrame(base.CloseCodeNormalClosure, "")
 
 // CloseFrameGoingAway //
-var CloseFrameGoingAway = buildCloseFrame(base.CloseCodeGoingAway, "")
+var CloseFrameGoingAway = compileCloseFrame(base.CloseCodeGoingAway, "")
 
 // CloseFrameSubprotocolError //
-var CloseFrameSubprotocolError = buildCloseFrame(base.CloseCodeSubprotocolError, "")
+var CloseFrameSubprotocolError = compileCloseFrame(base.CloseCodeSubprotocolError, "")
 
 // CloseFramePathFullError //
-var CloseFramePathFullError = buildCloseFrame(base.CloseCodePathFullError, "")
+var CloseFramePathFullError = compileCloseFrame(base.CloseCodePathFullError, "")
 
 // CloseFrameProtocolError //
-var CloseFrameProtocolError = buildCloseFrame(base.CloseCodeProtocolError, "")
+var CloseFrameProtocolError = compileCloseFrame(base.CloseCodeProtocolError, "")
 
 // CloseFrameInternalError //
-var CloseFrameInternalError = buildCloseFrame(base.CloseCodeInternalError, "")
+var CloseFrameInternalError = compileCloseFrame(base.CloseCodeInternalError, "")
 
 // CloseFrameHandover //
-var CloseFrameHandover = buildCloseFrame(base.CloseCodeHandover, "")
+var CloseFrameHandover = compileCloseFrame(base.CloseCodeHandover, "")
 
 // CloseFrameDropByInitiator //
-var CloseFrameDropByInitiator = buildCloseFrame(base.CloseCodeDropByInitiator, "")
+var CloseFrameDropByInitiator = compileCloseFrame(base.CloseCodeDropByInitiator, "")
 
 // CloseFrameInitiatorCouldNotDecrypt //
-var CloseFrameInitiatorCouldNotDecrypt = buildCloseFrame(base.CloseCodeInitiatorCouldNotDecrypt, "")
+var CloseFrameInitiatorCouldNotDecrypt = compileCloseFrame(base.CloseCodeInitiatorCouldNotDecrypt, "")
 
 // CloseFrameNoSharedTasks //
-var CloseFrameNoSharedTasks = buildCloseFrame(base.CloseCodeNoSharedTasks, "")
+var CloseFrameNoSharedTasks = compileCloseFrame(base.CloseCodeNoSharedTasks, "")
 
 // CloseFrameInvalidKey //
-var CloseFrameInvalidKey = buildCloseFrame(base.CloseCodeInvalidKey, "")
+var CloseFrameInvalidKey = compileCloseFrame(base.CloseCodeInvalidKey, "")
 
 // CloseFrameTimeout //
-var CloseFrameTimeout = buildCloseFrame(base.CloseCodeTimeout, "")
+var CloseFrameTimeout = compileCloseFrame(base.CloseCodeTimeout, "")
 
 // Conn ..
 type Conn struct {
@@ -60,6 +60,27 @@ type Conn struct {
 	closed     bool
 }
 
+// Close ..
+func (c *Conn) Close(preWrite []byte) error {
+	if c.closed {
+		return errors.New("connection already closed")
+	}
+	c.loop.poll.ModDetach(c.fd)
+	loopCloseConn(c.loop, c, preWrite)
+	c.closed = true
+	return nil
+}
+
+// Write ..
+func (c *Conn) Write(p []byte) (int, error) {
+	return c.netConn.Write(p)
+}
+
+// Read ..
+func (c *Conn) Read(p []byte) (int, error) {
+	return syscall.Read(c.fd, p)
+}
+
 func socketFD(conn net.Conn) int {
 	//tls := reflect.TypeOf(conn.UnderlyingConn()) == reflect.TypeOf(&tls.Conn{})
 	// Extract the file descriptor associated with the connection
@@ -72,25 +93,6 @@ func socketFD(conn net.Conn) int {
 	pfdVal := reflect.Indirect(fdVal).FieldByName("pfd")
 
 	return int(pfdVal.FieldByName("Sysfd").Int())
-}
-
-func buildCloseFrame(code int, reason string) []byte {
-	return ws.MustCompileFrame(
-		ws.NewCloseFrame(ws.NewCloseFrameBody(
-			ws.StatusAbnormalClosure, reason,
-		)),
-	)
-}
-
-// Close ..
-func (c *Conn) Close(preWrite []byte) error {
-	if c.closed {
-		return errors.New("connection already closed")
-	}
-	c.loop.poll.ModDetach(c.fd)
-	loopCloseConn(c.loop, c, preWrite)
-	c.closed = true
-	return nil
 }
 
 func getCloseFrameByCode(code int, defaultFrame []byte) (closeFrame []byte) {
@@ -135,4 +137,12 @@ func getCloseFrameByCode(code int, defaultFrame []byte) (closeFrame []byte) {
 		closeFrame = defaultFrame
 	}
 	return
+}
+
+func compileCloseFrame(code int, reason string) []byte {
+	return ws.MustCompileFrame(
+		ws.NewCloseFrame(ws.NewCloseFrameBody(
+			ws.StatusAbnormalClosure, reason,
+		)),
+	)
 }
