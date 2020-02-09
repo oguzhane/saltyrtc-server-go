@@ -1,8 +1,6 @@
 package core
 
 import (
-	"io"
-	"io/ioutil"
 	"net"
 	"sync/atomic"
 	"syscall"
@@ -126,21 +124,21 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 }
 
 func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
-	Sugar.Info("Inside handleReceive")
+	// Sugar.Info("Inside handleReceive")
 
 	s.wp.Submit(func() {
 		Sugar.Info("Inside handleReceive#Submit")
 		c.client.mux.Lock()
 		defer c.client.mux.Unlock()
 
-		Sugar.Info("<----NextReader")
-		data, _, err := wsutil.ReadClientData(c.netConn)
-		Sugar.Info("---->NextReader")
+		// Sugar.Info("<----ReadClientData")
+		data, op, err := wsutil.ReadClientData(c)
+		// Sugar.Info("---->ReadClientData")
 		if err != nil {
 			Sugar.Error(err)
 
 			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
-				io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
+				// io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 				return
 			}
 			Sugar.Info("connection closing..")
@@ -149,9 +147,10 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 			s.paths.Prune(c.client.Path)
 			return
 		}
-		Sugar.Info("Submit")
-		Sugar.Info("Call client.Received")
-		c.client.Received(data)
+
+		if op.IsData() {
+			c.client.Received(data)
+		}
 	})
 }
 
@@ -187,19 +186,18 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 
 	var client *Client
 	box, err := boxkeypair.GenerateBoxKeyPair()
-	if err == nil {
-		// TODO: we should keep oldPath unless handshake for newPath is completed
-		path, _ := s.paths.GetOrCreate(initiatorKey)
-		defaultPermanentBox := s.permanentBoxes[0]
-		client, err = NewClient(c, *initiatorKeyBytes, defaultPermanentBox, box)
+	path, _ := s.paths.GetOrCreate(initiatorKey)
+	defaultPermanentBox := s.permanentBoxes[0]
+
+	if client, _ = NewClient(c, *initiatorKeyBytes, defaultPermanentBox, box); client != nil {
 		client.Path = path
 		client.Server = s
 	}
+
 	if err != nil || client == nil {
 		Sugar.Error("Closing due to internal err:", err)
-		client.conn.Close(CloseFrameInternalError)
-		s.paths.Prune(client.Path)
-		// loopCloseConn(l, c, CloseFrameInternalError)
+		c.Close(CloseFrameInternalError)
+		s.paths.Prune(path)
 		return err
 	}
 
