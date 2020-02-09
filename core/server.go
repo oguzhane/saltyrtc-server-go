@@ -4,7 +4,6 @@ import (
 	"net"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
@@ -63,7 +62,7 @@ func (s *Server) Start(addr string) error {
 		Sugar.Fatal(err)
 	}
 	ln.lnaddr = ln.ln.Addr()
-	Sugar.Infof("websocket is listening on %s\n", ln.lnaddr.String())
+	Sugar.Info("Connection listening on ", ln.lnaddr.String())
 
 	ln.system()
 
@@ -73,8 +72,10 @@ func (s *Server) Start(addr string) error {
 		fdconns: make(map[int]*Conn),
 	}
 	poll.AddReadOnce(ln.fd)
+
+	Sugar.Debug("Waiting for an I/O event on an connection file descriptor")
 	return poll.Wait(func(fd int, note interface{}) error {
-		Sugar.Infof("Trigger:fd: %v", fd)
+		Sugar.Debug("Triggered for an event on fd: ", fd)
 		if fd == ln.fd {
 			defer poll.ModReadOnce(fd)
 		}
@@ -93,23 +94,6 @@ func (s *Server) Start(addr string) error {
 	})
 }
 
-var tickStarted bool
-
-func (s *Server) handleTick(c *Conn) {
-	if tickStarted {
-		return
-	}
-	tickStarted = true
-	go func() {
-		for _ = range time.Tick(time.Second * 5) {
-			// s.Write(c, []byte("ping"), "myCtx", func(ctx interface{}, err error) {
-			// 	Sugar.Info(ctx, err)
-			// })
-			s.WriteCtrl(c, []byte("ping"))
-		}
-	}()
-}
-
 func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 	if !c.upgraded {
 		err := s.handleNewConn(l, ln, c)
@@ -124,24 +108,29 @@ func (s *Server) loopRead(l *loop, ln *listener, c *Conn) error {
 }
 
 func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
-	// Sugar.Info("Inside handleReceive")
-
+	Sugar.Debug("Enqueuing a task to worker pool to handle receiving data")
 	s.wp.Submit(func() {
-		Sugar.Info("Inside handleReceive#Submit")
+		Sugar.Debug("The task invoked by a worker to handle receiving data")
+
 		c.client.mux.Lock()
 		defer c.client.mux.Unlock()
 
-		// Sugar.Info("<----ReadClientData")
+		Sugar.Debug("Reading ws client data..")
 		data, op, err := wsutil.ReadClientData(c)
-		// Sugar.Info("---->ReadClientData")
+
+		Sugar.Debug("Client data is read. OpCode: ", op)
+
 		if err != nil {
-			Sugar.Error(err)
 
 			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
+				Sugar.Debug(err)
 				// io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 				return
 			}
+
+			Sugar.Error("Error occurred while reading client data :", err)
 			Sugar.Info("connection closing..")
+
 			c.Close(nil)
 			c.client.DelFromPath()
 			s.paths.Prune(c.client.Path)
@@ -173,13 +162,13 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 		if err == syscall.EAGAIN {
 			return nil
 		}
-		Sugar.Error(err)
+		Sugar.Error("Could not upgrade connection to websocket :", err)
 		return loopCloseConn(l, c, nil)
 	}
 
 	initiatorKeyBytes, err := hexutil.HexStringToBytes32(initiatorKey)
 	if err != nil {
-		Sugar.Error("Closing due to invalid key:", initiatorKey)
+		Sugar.Warn("Closing due to invalid path key :", initiatorKey)
 		loopCloseConn(l, c, CloseFrameInvalidKey)
 		return err
 	}
@@ -195,7 +184,7 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	}
 
 	if err != nil || client == nil {
-		Sugar.Error("Closing due to internal err:", err)
+		Sugar.Error("Closing due to internal err :", err)
 		c.Close(CloseFrameInternalError)
 		s.paths.Prune(path)
 		return err
@@ -204,7 +193,7 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	// initialize the client
 	c.client = client
 	c.upgraded = true
-	Sugar.Infof("Connection established. key:%s", initiatorKey)
+	Sugar.Info("Connection established with the key :", initiatorKey)
 	return nil
 }
 
@@ -280,7 +269,7 @@ func loopCloseConn(l *loop, c *Conn, preWrite []byte) error {
 func submitServerHello(l *loop, client *Client) {
 	server := client.Server
 	server.wp.Submit(func() {
-		Sugar.Infof("about to submit server hello msg.")
+		Sugar.Debug("About to submit server hello message")
 		client.mux.Lock()
 		defer client.mux.Unlock()
 		client.sendServerHello()

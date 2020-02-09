@@ -104,27 +104,38 @@ func (c *Client) SetType(t base.AddressType) {
 
 // Received ..
 func (c *Client) Received(b []byte) {
-	Sugar.Info("Unpacking received data..")
+	Sugar.Debug("Unpacking received data..")
+
 	msgIncoming, err := Unpack(c, b, UnpackRaw)
 	if err != nil {
-		Sugar.Error(err)
+		Sugar.Warn("Could not unpack received data :", err)
 		return
 	}
 
 	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
+		Sugar.Debug("Received client-hello")
 		c.handleClientHello(msg)
+
 	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
+		Sugar.Debug("Received client-auth")
+
 		if err := c.handleClientAuth(msg); err == nil {
 			c.Server.wp.Submit(func() {
+				Sugar.Debug("Sending server-auth")
+
 				c.sendServerAuth()
 			})
 		}
 	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
+		Sugar.Debug("Sending drop-responder")
 		c.handleDropResponder(msg)
+
 	} else if msg, ok := msgIncoming.(*RawMessage); ok {
+		Sugar.Debug("Received RawMessage")
 		c.handleRawMessage(msg)
+
 	} else {
-		Sugar.Info("### Unhandled Message ###")
+		Sugar.Warn("Received unhandled message :", msgIncoming)
 	}
 	// todo: handle all messages
 	return
@@ -178,11 +189,14 @@ func (c *Client) sendServerAuth() (err error) {
 		if prevClient, ok := c.Path.GetInitiator(); ok && prevClient != c {
 			// todo: kill prevClient
 		}
+
 		c.Path.SetInitiator(c)
 		c.Id = base.Initiator
 		c.Authenticated = true
 		c.State = ServerAuth
-		Sugar.Info("Authenticated Initiator: ", base.Initiator)
+
+		Sugar.Debug("New authenticated Initiator: ", base.Initiator)
+
 		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
 			// TODO(oergin): consider to send 'new-initiator' message by a new worker
 			r.sendNewInitiator()
@@ -207,7 +221,7 @@ func (c *Client) sendServerAuth() (err error) {
 	c.Id = slotID
 	c.Authenticated = true
 	c.State = ServerAuth
-	Sugar.Info("Authenticated Responder: ", slotID)
+	Sugar.Debug("New authenticated Responder: ", slotID)
 
 	if initiator, ok := c.Path.GetInitiator(); ok && initiator.Authenticated {
 		initiator.sendNewResponder(c.Id)
@@ -302,7 +316,7 @@ func (c *Client) handleRawMessage(msg *RawMessage) (err error) {
 }
 
 func (c *Client) sendRawData(data []byte) (err error) {
-	Sugar.Info("Sending Raw Data...")
+	Sugar.Debug("Sending raw data..")
 	err = c.Server.WriteCtrl(c.conn, data)
 	return
 }
