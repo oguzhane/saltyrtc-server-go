@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
@@ -103,29 +104,27 @@ func (c *Client) SetType(t base.AddressType) {
 
 // Received ..
 func (c *Client) Received(b []byte) {
-
+	Sugar.Info("Unpacking received data..")
 	msgIncoming, err := Unpack(c, b, UnpackRaw)
-
 	if err != nil {
 		Sugar.Error(err)
 		return
 	}
 
-	if msgIncoming == nil {
-		// Handled some control message.
-		return
-	}
 	if msg, ok := msgIncoming.(*ClientHelloMessage); ok {
 		c.handleClientHello(msg)
 	} else if msg, ok := msgIncoming.(*ClientAuthMessage); ok {
-		err := c.handleClientAuth(msg)
-		if err == nil {
+		if err := c.handleClientAuth(msg); err == nil {
 			c.Server.wp.Submit(func() {
 				c.sendServerAuth()
 			})
 		}
 	} else if msg, ok := msgIncoming.(*DropResponderMessage); ok {
 		c.handleDropResponder(msg)
+	} else if msg, ok := msgIncoming.(*RawMessage); ok {
+		c.handleRawMessage(msg)
+	} else {
+		Sugar.Info("### Unhandled Message ###")
 	}
 	// todo: handle all messages
 	return
@@ -172,8 +171,7 @@ func (c *Client) sendServerAuth() (err error) {
 
 		msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
 		data, _ := Pack(c, msg.src, msg.dest, msg)
-		err = c.Server.WriteCtrl(c.conn, data)
-		if err != nil {
+		if err = c.Server.WriteCtrl(c.conn, data); err != nil {
 			return
 		}
 
@@ -185,8 +183,8 @@ func (c *Client) sendServerAuth() (err error) {
 		c.Authenticated = true
 		c.State = ServerAuth
 		Sugar.Info("Authenticated Initiator: ", base.Initiator)
-		// Todo: send "new-initiator" message to responders
 		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
+			// TODO(oergin): consider to send 'new-initiator' message by a new worker
 			r.sendNewInitiator()
 		})
 		return
@@ -194,8 +192,7 @@ func (c *Client) sendServerAuth() (err error) {
 	// server-auth for responder
 	slotID, err := c.Path.AddResponder(c)
 	if err != nil {
-		c.Path.Del(slotID)
-		err = errors.New("Path Full")
+		err = fmt.Errorf("Could not allocate Id for responder : %w", err)
 		c.conn.Close(CloseFramePathFullError)
 		return
 	}
@@ -203,8 +200,8 @@ func (c *Client) sendServerAuth() (err error) {
 	msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
 
 	data, _ := Pack(c, msg.src, msg.dest, msg)
-	err = c.Server.WriteCtrl(c.conn, data)
-	if err != nil {
+
+	if err = c.Server.WriteCtrl(c.conn, data); err != nil {
 		return
 	}
 	c.Id = slotID
@@ -212,7 +209,6 @@ func (c *Client) sendServerAuth() (err error) {
 	c.State = ServerAuth
 	Sugar.Info("Authenticated Responder: ", slotID)
 
-	// Todo: send "new-responder" message to initiator
 	if initiator, ok := c.Path.GetInitiator(); ok && initiator.Authenticated {
 		initiator.sendNewResponder(c.Id)
 	}
@@ -249,7 +245,7 @@ func (c *Client) handleClientAuth(msg *ClientAuthMessage) (err error) {
 	}
 
 	if len(c.Server.permanentBoxes) == 0 {
-		err = errors.New("the server does not have a permanent key pair")
+		err = errors.New("server does not have a permanent key pair")
 		return
 	}
 
@@ -261,7 +257,7 @@ func (c *Client) handleClientAuth(msg *ClientAuthMessage) (err error) {
 		}
 	}
 	if c.ServerPermanentBox == nil {
-		err = errors.New("yourKey matches none of the server permanent key pairs")
+		err = errors.New("yourKey matches none of permanent key pairs of server")
 		return
 	}
 
@@ -277,7 +273,7 @@ func (c *Client) handleClientAuth(msg *ClientAuthMessage) (err error) {
 
 func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
 	if !c.Authenticated || c.typeValue != base.Initiator {
-		err = errors.New("client is not Authenticated or not initiator")
+		err = errors.New("Client is not authenticated, nor initiator")
 		return
 	}
 	responder, ok := c.Path.Get(msg.responderId)
@@ -288,6 +284,26 @@ func (c *Client) handleDropResponder(msg *DropResponderMessage) (err error) {
 	c.Path.Del(msg.responderId)
 	closeFrame := getCloseFrameByCode(msg.reason, CloseFrameDropByInitiator)
 	responder.conn.Close(closeFrame)
+	return
+}
+
+func (c *Client) handleRawMessage(msg *RawMessage) (err error) {
+	if !c.Authenticated || c.Id != msg.src || msg.src == msg.dest {
+		err = errors.New("Client is not authenticated nor valid raw message")
+		return
+	}
+	destClient, ok := c.Path.Get(msg.dest)
+	if !ok {
+		err = errors.New("Dest client does not exist")
+		return
+	}
+	err = destClient.sendRawData(msg.data)
+	return
+}
+
+func (c *Client) sendRawData(data []byte) (err error) {
+	Sugar.Info("Sending Raw Data...")
+	err = c.Server.WriteCtrl(c.conn, data)
 	return
 }
 
