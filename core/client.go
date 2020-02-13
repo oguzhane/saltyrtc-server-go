@@ -10,8 +10,8 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/randutil"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/randutil"
 )
 
 // STATES
@@ -43,7 +43,6 @@ type Client struct {
 	typeHasValue  bool
 	Path          *Path
 	Server        *Server
-	AliveStat     base.AliveStatType
 	State         int
 }
 
