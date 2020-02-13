@@ -1,33 +1,42 @@
-package boxkeypair
+package nacl
 
 import (
 	"bytes"
 	"crypto/rand"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"golang.org/x/crypto/nacl/box"
 )
 
+const (
+	// NaclKeyBytesSize ..
+	NaclKeyBytesSize = 32
+)
+
+// BoxKeyPair ..
 type BoxKeyPair struct {
-	Pk [base.KeyBytesSize]byte
-	Sk [base.KeyBytesSize]byte
+	Pk [NaclKeyBytesSize]byte
+	Sk [NaclKeyBytesSize]byte
 }
 
-func NewBoxKeyPair(pk [base.KeyBytesSize]byte, sk [base.KeyBytesSize]byte) *BoxKeyPair {
+// NewBoxKeyPair ..
+func NewBoxKeyPair(pk [NaclKeyBytesSize]byte, sk [NaclKeyBytesSize]byte) *BoxKeyPair {
 	return &BoxKeyPair{
 		Pk: pk,
 		Sk: sk,
 	}
 }
 
-func (box *BoxKeyPair) PkEqualTo(target [base.KeyBytesSize]byte) bool {
+// PkEqualTo ..
+func (box *BoxKeyPair) PkEqualTo(target [NaclKeyBytesSize]byte) bool {
 	return bytes.Equal(box.Pk[:], target[:])
 }
 
-func (box *BoxKeyPair) SkEqualTo(target [base.KeyBytesSize]byte) bool {
+// SkEqualTo ..
+func (box *BoxKeyPair) SkEqualTo(target [NaclKeyBytesSize]byte) bool {
 	return bytes.Equal(box.Sk[:], target[:])
 }
 
+// Clone ..
 func (box *BoxKeyPair) Clone() *BoxKeyPair {
 	return &BoxKeyPair{
 		Pk: box.Pk,
@@ -35,6 +44,7 @@ func (box *BoxKeyPair) Clone() *BoxKeyPair {
 	}
 }
 
+// GenerateBoxKeyPair ..
 func GenerateBoxKeyPair() (*BoxKeyPair, error) {
 	pk, sk, err := box.GenerateKey(rand.Reader)
 	if err != nil {

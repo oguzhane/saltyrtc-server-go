@@ -9,7 +9,7 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/randutil"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
 )
@@ -29,8 +29,8 @@ type Client struct {
 	conn *Conn
 
 	ClientKey          [base.KeyBytesSize]byte
-	ServerSessionBox   *boxkeypair.BoxKeyPair
-	ServerPermanentBox *boxkeypair.BoxKeyPair
+	ServerSessionBox   *nacl.BoxKeyPair
+	ServerPermanentBox *nacl.BoxKeyPair
 	CookieOut          []byte
 	cookieIn           []byte
 
@@ -47,7 +47,7 @@ type Client struct {
 }
 
 // NewClient ..
-func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *boxkeypair.BoxKeyPair) (*Client, error) {
+func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *nacl.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(base.CookieLength)
 	if err != nil {
 		return nil, err

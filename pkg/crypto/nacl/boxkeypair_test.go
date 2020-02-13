@@ -1,4 +1,4 @@
-package boxkeypair
+package nacl
 
 import (
 	"crypto/rand"

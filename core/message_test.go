@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
 )
 
 func TestServerHelloMessage(t *testing.T) {
 	clientKey, _ := hexutil.HexStringToBytes32("eed23022797406049feb27c3812f8411ab521faafe7fb1b02717745cb0dcfa15")
-	permanentBox, _ := boxkeypair.GenerateBoxKeyPair()
-	sessionBox, _ := boxkeypair.GenerateBoxKeyPair()
-	serverBox, _ := boxkeypair.GenerateBoxKeyPair()
+	permanentBox, _ := nacl.GenerateBoxKeyPair()
+	sessionBox, _ := nacl.GenerateBoxKeyPair()
+	serverBox, _ := nacl.GenerateBoxKeyPair()
 
 	client, _ := NewClient(nil, *clientKey, permanentBox, sessionBox)
 	msg := NewServerHelloMessage(base.Server, base.Initiator, serverBox.Pk[:])
@@ -33,8 +33,8 @@ func TestServerHelloMessage(t *testing.T) {
 
 func TestClientHelloMessage(t *testing.T) {
 	clientKey, _ := hexutil.HexStringToBytes32("eed23022797406049feb27c3812f8411ab521faafe7fb1b02717745cb0dcfa15")
-	permanentBox, _ := boxkeypair.GenerateBoxKeyPair()
-	sessionBox, _ := boxkeypair.GenerateBoxKeyPair()
+	permanentBox, _ := nacl.GenerateBoxKeyPair()
+	sessionBox, _ := nacl.GenerateBoxKeyPair()
 
 	remoteClient, _ := NewClient(nil, *clientKey, permanentBox, sessionBox)
 	remoteClient.Id = base.Initiator
@@ -74,8 +74,8 @@ func TestClientHelloMessage(t *testing.T) {
 
 func TestClientAuthMessage(t *testing.T) {
 	clientKey, _ := hexutil.HexStringToBytes32("eed23022797406049feb27c3812f8411ab521faafe7fb1b02717745cb0dcfa15")
-	permanentBox, _ := boxkeypair.GenerateBoxKeyPair()
-	sessionBox, _ := boxkeypair.GenerateBoxKeyPair()
+	permanentBox, _ := nacl.GenerateBoxKeyPair()
+	sessionBox, _ := nacl.GenerateBoxKeyPair()
 
 	remoteClient, _ := NewClient(nil, *clientKey, permanentBox, sessionBox)
 	remoteClient.Authenticated = true
@@ -131,8 +131,8 @@ func TestClientAuthMessage(t *testing.T) {
 
 func TestServerAuthMessage(t *testing.T) {
 	clientKey, _ := hexutil.HexStringToBytes32("eed23022797406049feb27c3812f8411ab521faafe7fb1b02717745cb0dcfa15")
-	permanentBox, _ := boxkeypair.GenerateBoxKeyPair()
-	sessionBox, _ := boxkeypair.GenerateBoxKeyPair()
+	permanentBox, _ := nacl.GenerateBoxKeyPair()
+	sessionBox, _ := nacl.GenerateBoxKeyPair()
 
 	remoteClient, _ := NewClient(nil, *clientKey, permanentBox, sessionBox)
 	remoteClient.Authenticated = true

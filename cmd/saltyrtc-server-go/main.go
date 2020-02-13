@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/OguzhanE/saltyrtc-server-go/core"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
 )
 
@@ -47,7 +47,7 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", flags.Addr, flags.Port)
 
-	defaultBox := boxkeypair.NewBoxKeyPair(*pkBytes, *skBytes)
+	defaultBox := nacl.NewBoxKeyPair(*pkBytes, *skBytes)
 	core.Sugar.Info("Starting server with the public permanent key: ", flags.Pk)
 
 	server = core.NewServer(*defaultBox)

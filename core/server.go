@@ -6,7 +6,7 @@ import (
 	"syscall"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/boxkeypair"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
@@ -30,12 +30,12 @@ type Server struct {
 	wp             *workerpool.WorkerPool
 	subprotocols   []string
 	subprotocol    string
-	permanentBoxes []*boxkeypair.BoxKeyPair
+	permanentBoxes []*nacl.BoxKeyPair
 }
 
 // NewServer creates new server instance
-func NewServer(permanentBox boxkeypair.BoxKeyPair) *Server {
-	permanentBoxes := []*boxkeypair.BoxKeyPair{
+func NewServer(permanentBox nacl.BoxKeyPair) *Server {
+	permanentBoxes := []*nacl.BoxKeyPair{
 		&permanentBox,
 	}
 	return &Server{
@@ -174,7 +174,7 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	}
 
 	var client *Client
-	box, err := boxkeypair.GenerateBoxKeyPair()
+	box, err := nacl.GenerateBoxKeyPair()
 	path, _ := s.paths.GetOrCreate(initiatorKey)
 	defaultPermanentBox := s.permanentBoxes[0]
 
