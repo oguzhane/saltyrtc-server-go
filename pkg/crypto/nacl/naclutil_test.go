@@ -1,4 +1,4 @@
-package naclutil
+package nacl
 
 import (
 	"reflect"

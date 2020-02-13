@@ -4,9 +4,10 @@ import (
 	"errors"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
+// IsValidYourCookieBytes ..
 func IsValidYourCookieBytes(pk interface{}) bool {
 	if pk == nil {
 		return false
@@ -18,6 +19,7 @@ func IsValidYourCookieBytes(pk interface{}) bool {
 	return false
 }
 
+// ParseYourCookie ..
 func ParseYourCookie(pk interface{}) ([]byte, error) {
 	if !IsValidYourCookieBytes(pk) {
 		return nil, errors.New("invalid your_cookie")
@@ -26,6 +28,7 @@ func ParseYourCookie(pk interface{}) ([]byte, error) {
 	return b, nil
 }
 
+// IsValidSubprotocols ..
 func IsValidSubprotocols(subprotocols interface{}) bool {
 	if subprotocols == nil {
 		return false
@@ -34,6 +37,7 @@ func IsValidSubprotocols(subprotocols interface{}) bool {
 	return ok
 }
 
+// ParseSubprotocols ..
 func ParseSubprotocols(subprotocols interface{}) ([]string, error) {
 	if !IsValidSubprotocols(subprotocols) {
 		return nil, errors.New("invalid subprotocols")
@@ -42,6 +46,7 @@ func ParseSubprotocols(subprotocols interface{}) ([]string, error) {
 	return val, nil
 }
 
+// IsValidPingInterval ..
 func IsValidPingInterval(pingInterval interface{}) bool {
 	if pingInterval == nil {
 		return false
@@ -53,6 +58,7 @@ func IsValidPingInterval(pingInterval interface{}) bool {
 	return false
 }
 
+// ParsePingInterval ..
 func ParsePingInterval(pingInterval interface{}) (int, error) {
 	if !IsValidPingInterval(pingInterval) {
 		return 0, errors.New("invalid ping_interval")
@@ -61,19 +67,22 @@ func ParsePingInterval(pingInterval interface{}) (int, error) {
 	return val, nil
 }
 
+// IsValidYourKey ..
 func IsValidYourKey(yourKey interface{}) bool {
-	return naclutil.IsValidBoxPkBytes(yourKey)
+	return nacl.IsValidBoxPkBytes(yourKey)
 }
 
+// ParseYourKey ..
 func ParseYourKey(yourKey interface{}) ([base.KeyBytesSize]byte, error) {
-	yourKeyBytes, err := naclutil.ConvertBoxPkToBytes(yourKey)
+	yourKeyBytes, err := nacl.ConvertBoxPkToBytes(yourKey)
 	if err != nil {
 		var tmpArr [base.KeyBytesSize]byte
 		return tmpArr, err
 	}
-	return naclutil.CreateBoxPkFromBytes(yourKeyBytes)
+	return nacl.CreateBoxPkFromBytes(yourKeyBytes)
 }
 
+// IsValidAddressId ..
 func IsValidAddressId(id interface{}) bool {
 	if id == nil {
 		return false
@@ -82,6 +91,7 @@ func IsValidAddressId(id interface{}) bool {
 	return ok
 }
 
+// ParseAddressId ..
 func ParseAddressId(id interface{}) (base.AddressType, error) {
 	if !IsValidAddressId(id) {
 		return 0, errors.New("Invalid address id")
@@ -90,11 +100,13 @@ func ParseAddressId(id interface{}) (base.AddressType, error) {
 	return v, nil
 }
 
+// IsValidResponderAddressId ..
 func IsValidResponderAddressId(id interface{}) bool {
 	v, err := ParseAddressId(id)
 	return err == nil && base.IsValidResponderAddressType(v)
 }
 
+// ParseResponderAddressId ..
 func ParseResponderAddressId(id interface{}) (base.AddressType, error) {
 	if !IsValidResponderAddressId(id) {
 		return 0, errors.New("Invalid responder address id")
@@ -103,6 +115,7 @@ func ParseResponderAddressId(id interface{}) (base.AddressType, error) {
 	return v, nil
 }
 
+// IsValidReasonCode ..
 func IsValidReasonCode(reason interface{}) bool {
 	if reason == nil {
 		return false
@@ -118,6 +131,7 @@ func IsValidReasonCode(reason interface{}) bool {
 	return false
 }
 
+// ParseReasonCode ..
 func ParseReasonCode(reason interface{}) (int, error) {
 	if !IsValidReasonCode(reason) {
 		return 0, errors.New("Invalid reason code")

@@ -1,22 +1,22 @@
-package naclutil
+package nacl
 
 import (
 	"errors"
-
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 )
 
+// IsValidBoxPkBytes ..
 func IsValidBoxPkBytes(pk interface{}) bool {
 	if pk == nil {
 		return false
 	}
 	b, ok := pk.([]byte)
-	if ok && len(b) == base.KeyBytesSize {
+	if ok && len(b) == NaclKeyBytesSize {
 		return true
 	}
 	return false
 }
 
+// ConvertBoxPkToBytes ..
 func ConvertBoxPkToBytes(pk interface{}) ([]byte, error) {
 	if !IsValidBoxPkBytes(pk) {
 		return nil, errors.New("invalid BoxPk")
@@ -25,11 +25,12 @@ func ConvertBoxPkToBytes(pk interface{}) ([]byte, error) {
 	return b, nil
 }
 
-func CreateBoxPkFromBytes(pk []byte) ([base.KeyBytesSize]byte, error) {
-	var pkArr [base.KeyBytesSize]byte
+// CreateBoxPkFromBytes ..
+func CreateBoxPkFromBytes(pk []byte) ([NaclKeyBytesSize]byte, error) {
+	var pkArr [NaclKeyBytesSize]byte
 	if !IsValidBoxPkBytes(pk) {
 		return pkArr, errors.New("invalid BoxPk")
 	}
-	copy(pkArr[:], pk[:base.KeyBytesSize])
+	copy(pkArr[:], pk[:NaclKeyBytesSize])
 	return pkArr, nil
 }

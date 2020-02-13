@@ -8,8 +8,8 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/msgutil"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/naclutil"
 
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
@@ -247,12 +247,12 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 
 	switch payload.Type {
 	case base.ServerHello:
-		if serverPk, err := naclutil.ConvertBoxPkToBytes(payload.Key); err == nil {
+		if serverPk, err := nacl.ConvertBoxPkToBytes(payload.Key); err == nil {
 			return NewServerHelloMessage(rawData.Source, rawData.Dest, serverPk), nil
 		}
 		return nil, NewPayloadFieldError(base.ServerHello, "key", err)
 	case base.ClientHello:
-		if clientPk, err := naclutil.ConvertBoxPkToBytes(payload.Key); err == nil {
+		if clientPk, err := nacl.ConvertBoxPkToBytes(payload.Key); err == nil {
 			return NewClientHelloMessage(rawData.Source, rawData.Dest, clientPk), nil
 		}
 		return nil, NewPayloadFieldError(base.ClientHello, "key", err)
