@@ -27,7 +27,7 @@ type Client struct {
 	mux  sync.Mutex
 	conn *Conn
 
-	ClientKey          [base.KeyBytesSize]byte
+	ClientKey          [nacl.NaclKeyBytesSize]byte
 	ServerSessionBox   *nacl.BoxKeyPair
 	ServerPermanentBox *nacl.BoxKeyPair
 	CookieOut          []byte
@@ -43,6 +43,8 @@ type Client struct {
 	Path          *Path
 	Server        *Server
 	State         int
+
+	nonceUnpacker *ClientNonceUnpacker
 }
 
 // NewClient ..
@@ -55,7 +57,7 @@ func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sess
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	c := &Client{
 		conn:                      conn,
 		ClientKey:                 clientKey,
 		CookieOut:                 cookieOut,
@@ -63,7 +65,11 @@ func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sess
 		ServerPermanentBox:        permanentBox,
 		ServerSessionBox:          sessionBox,
 		State:                     None,
-	}, nil
+	}
+	c.nonceUnpacker = &ClientNonceUnpacker{
+		client: c,
+	}
+	return c, nil
 }
 
 // GetCookieIn ..
@@ -104,7 +110,7 @@ func (c *Client) SetType(t base.AddressType) {
 func (c *Client) Received(b []byte) {
 	Sugar.Debug("Unpacking received data..")
 
-	msgIncoming, err := Unpack(c, b, UnpackRaw)
+	msgIncoming, err := Unpack(c.nonceUnpacker, b, UnpackRaw)
 	if err != nil {
 		Sugar.Warn("Could not unpack received data :", err)
 		return
@@ -141,7 +147,8 @@ func (c *Client) Received(b []byte) {
 
 func (c *Client) sendServerHello() (err error) {
 	msg := NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
-	data, _ := Pack(c, msg.src, msg.dest, msg)
+	packer := NewClientNoncePacker(c, msg.src, msg.dest)
+	data, _ := Pack(packer, msg)
 	err = c.Server.WriteCtrl(c.conn, data)
 	if err == nil {
 		c.State = ServerHello
@@ -156,8 +163,13 @@ func (c *Client) sendServerHello() (err error) {
 }
 
 func (c *Client) sendNewInitiator() (err error) {
-	msg := NewNewInitiatorMessage(base.Server, c.Id)
-	data, err := Pack(c, msg.src, msg.dest, msg)
+	newInitiatorOpt := func(msg *NewInitiatorMessage) {
+		msg.clientKey = c.ClientKey
+		msg.serverSessionSk = c.ServerSessionBox.Sk
+	}
+	msg := NewNewInitiatorMessage(base.Server, c.Id, newInitiatorOpt)
+	packer := NewClientNoncePacker(c, msg.src, msg.dest)
+	data, err := Pack(packer, msg)
 	if err == nil {
 		err = c.Server.WriteCtrl(c.conn, data)
 	}
@@ -165,8 +177,14 @@ func (c *Client) sendNewInitiator() (err error) {
 }
 
 func (c *Client) sendNewResponder(responderID uint8) (err error) {
-	msg := NewNewResponderMessage(base.Server, c.Id, responderID)
-	data, err := Pack(c, msg.src, msg.dest, msg)
+	newResponderOpt := func(msg *NewResponderMessage) {
+		msg.clientKey = c.ClientKey
+		msg.serverSessionSk = c.ServerSessionBox.Sk
+	}
+
+	msg := NewNewResponderMessage(base.Server, c.Id, responderID, newResponderOpt)
+	packer := NewClientNoncePacker(c, msg.src, msg.dest)
+	data, err := Pack(packer, msg)
 	if err == nil {
 		err = c.Server.WriteCtrl(c.conn, data)
 	}
@@ -175,11 +193,17 @@ func (c *Client) sendNewResponder(responderID uint8) (err error) {
 
 func (c *Client) sendServerAuth() (err error) {
 	var msg *ServerAuthMessage
-
+	serverAuthOpt := func(msg *ServerAuthMessage) {
+		msg.serverPermanentSk = c.ServerPermanentBox.Sk
+		msg.clientKey = c.ClientKey
+		msg.serverSessionSk = c.ServerSessionBox.Sk
+		msg.serverSessionPk = c.ServerSessionBox.Pk
+	}
 	if clientType, _ := c.GetType(); clientType == base.Initiator {
 
-		msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
-		data, _ := Pack(c, msg.src, msg.dest, msg)
+		msg = NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path), serverAuthOpt)
+		packer := NewClientNoncePacker(c, msg.src, msg.dest)
+		data, _ := Pack(packer, msg)
 		if err = c.Server.WriteCtrl(c.conn, data); err != nil {
 			return
 		}
@@ -209,9 +233,9 @@ func (c *Client) sendServerAuth() (err error) {
 		return
 	}
 	clientInit, initiatorConnected := c.Path.GetInitiator()
-	msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
-
-	data, _ := Pack(c, msg.src, msg.dest, msg)
+	msg = NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated, serverAuthOpt)
+	packer := NewClientNoncePacker(c, msg.src, msg.dest)
+	data, _ := Pack(packer, msg)
 
 	if err = c.Server.WriteCtrl(c.conn, data); err != nil {
 		return

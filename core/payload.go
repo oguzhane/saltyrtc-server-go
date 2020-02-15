@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
 )
@@ -54,16 +55,16 @@ func decodePayload(encodedPayload []byte) (PayloadUnion, error) {
 	return v, err
 }
 
-func encryptPayload(client *Client, nonce []byte, encodedPayload []byte) ([]byte, error) {
+func encryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, encodedPayload []byte) ([]byte, error) {
 	var nonceArr [base.NonceLength]byte
 	copy(nonceArr[:], nonce[:base.NonceLength])
-	return box.Seal(nil, encodedPayload, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk), nil
+	return box.Seal(nil, encodedPayload, &nonceArr, &clientKey, &serverSessionSk), nil
 }
 
-func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
+func decryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, data []byte) ([]byte, error) {
 	var nonceArr [base.NonceLength]byte
 	copy(nonceArr[:], nonce[:base.NonceLength])
-	decryptedData, ok := box.Open(nil, data, &nonceArr, &client.ClientKey, &client.ServerSessionBox.Sk)
+	decryptedData, ok := box.Open(nil, data, &nonceArr, &clientKey, &serverSessionSk)
 	if !ok {
 		return nil, ErrCantDecryptPayload
 	}
@@ -72,7 +73,7 @@ func decryptPayload(client *Client, nonce []byte, data []byte) ([]byte, error) {
 
 // PayloadPacker ..
 type PayloadPacker interface {
-	Pack(client *Client, nonceReader NonceReader) ([]byte, error)
+	Pack(nonceReader NonceReader) ([]byte, error)
 }
 
 // PayloadUnion ..

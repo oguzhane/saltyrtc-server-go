@@ -1,6 +1,49 @@
 package core
 
-import "github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+import (
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
+)
+
+// CookieGetter ..
+type CookieGetter interface {
+	Cookie() ([]byte, error)
+}
+
+// LazyCookieWriter ..
+type LazyCookieWriter interface {
+	MakeCookieWriter(cookie []byte) (Do func(), err error)
+}
+
+// CsnGetter ..
+type CsnGetter interface {
+	Csn() *CombinedSequenceNumber
+}
+
+// CsnReceiver ..
+type CsnReceiver interface {
+	ReceiveCsn(csn *CombinedSequenceNumber)
+}
+
+// NoncePacker ..
+type NoncePacker interface {
+	Src() base.AddressType
+	Dest() base.AddressType
+	CsnGetter
+	CookieGetter
+}
+
+// NonceUnpacker ..
+type NonceUnpacker interface {
+	Type() (base.AddressType, bool)
+	Authenticated() bool
+	Id() base.AddressType
+	ClientKey() [nacl.NaclKeyBytesSize]byte
+	ServerSessionSk() [nacl.NaclKeyBytesSize]byte
+	CsnGetter
+	CsnReceiver
+	LazyCookieWriter
+}
 
 // BaseMessage //
 type BaseMessage struct {
@@ -28,7 +71,7 @@ func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPu
 }
 
 // Pack ..
-func (m *ClientHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *ClientHelloMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 		Key  []byte           `codec:"key"`
@@ -60,7 +103,7 @@ func NewRawMessage(src base.AddressType, dest base.AddressType, data []byte) *Ra
 }
 
 // Pack ..
-func (m *RawMessage) Pack(client *Client, nonceReader *NonceReader) ([]byte, error) {
+func (m *RawMessage) Pack(nonceReader *NonceReader) ([]byte, error) {
 	return m.data, nil
 }
 
@@ -85,7 +128,7 @@ func NewServerHelloMessage(src base.AddressType, dest base.AddressType, serverPu
 }
 
 // Pack ..
-func (m *ServerHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *ServerHelloMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 		Key  []byte           `codec:"key"`
@@ -101,16 +144,18 @@ func (m *ServerHelloMessage) Pack(client *Client, nonceReader NonceReader) ([]by
 // ClientAuthMessage //
 type ClientAuthMessage struct {
 	BaseMessage
-	serverCookie []byte
-	subprotocols []string
-	pingInterval uint32
-	serverKey    [base.KeyBytesSize]byte
+	serverCookie    []byte
+	subprotocols    []string
+	pingInterval    uint32
+	serverKey       [base.KeyBytesSize]byte
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewClientAuthMessage ..
 func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCookie []byte,
-	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte) *ClientAuthMessage {
-	return &ClientAuthMessage{
+	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte, opts ...func(*ClientAuthMessage)) *ClientAuthMessage {
+	msg := &ClientAuthMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
@@ -120,13 +165,17 @@ func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCoo
 		pingInterval: pingInterval,
 		serverKey:    serverKey,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *ClientAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
-	if !client.Authenticated {
-		return nil, base.NewMessageFlowError("Cannot encrypt payload", ErrNotAuthenticatedClient)
-	}
+func (m *ClientAuthMessage) Pack(nonceReader NonceReader) ([]byte, error) {
+	// if !client.Authenticated {
+	// 	return nil, base.NewMessageFlowError("Cannot encrypt payload", ErrNotAuthenticatedClient)
+	// }
 	payload := struct {
 		Type         base.MessageType `codec:"type"`
 		YourCookie   []byte           `codec:"your_cookie"`
@@ -148,7 +197,7 @@ func (m *ClientAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -162,12 +211,16 @@ type ServerAuthMessage struct {
 	initiatorConnected bool
 	responderIds       []base.AddressType
 	towardsInitiator   bool
+	serverPermanentSk  [nacl.NaclKeyBytesSize]byte
+	clientKey          [nacl.NaclKeyBytesSize]byte
+	serverSessionSk    [nacl.NaclKeyBytesSize]byte
+	serverSessionPk    [nacl.NaclKeyBytesSize]byte
 }
 
 // NewServerAuthMessageForInitiator ..
 func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressType, clientCookie []byte,
-	signKeys bool, responderIds []base.AddressType) *ServerAuthMessage {
-	return &ServerAuthMessage{
+	signKeys bool, responderIds []base.AddressType, opts ...func(*ServerAuthMessage)) *ServerAuthMessage {
+	msg := &ServerAuthMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
@@ -177,12 +230,16 @@ func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressTyp
 		responderIds:     responderIds,
 		towardsInitiator: true,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // NewServerAuthMessageForResponder ..
 func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressType, clientCookie []byte,
-	signKeys bool, initiatorConnected bool) *ServerAuthMessage {
-	return &ServerAuthMessage{
+	signKeys bool, initiatorConnected bool, opts ...func(*ServerAuthMessage)) *ServerAuthMessage {
+	msg := &ServerAuthMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
@@ -192,10 +249,14 @@ func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressTyp
 		initiatorConnected: initiatorConnected,
 		towardsInitiator:   false,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *ServerAuthMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	var payload interface{}
 	nonce, err := nonceReader()
 	if err != nil {
@@ -213,7 +274,7 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 				Type:               base.ServerAuth,
 				YourCookie:         m.clientCookie,
 				InitiatorConnected: m.initiatorConnected,
-				SignedKeys:         signKeys(client, nonce),
+				SignedKeys:         signKeys(m.clientKey, m.serverSessionPk, m.serverPermanentSk, nonce),
 			}
 		} else {
 			payload = struct {
@@ -243,7 +304,7 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 				Type:       base.ServerAuth,
 				YourCookie: m.clientCookie,
 				Responders: responderArr,
-				SignedKeys: signKeys(client, nonce),
+				SignedKeys: signKeys(m.clientKey, m.serverSessionPk, m.serverPermanentSk, nonce),
 			}
 		} else {
 			payload = struct {
@@ -263,7 +324,7 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -272,20 +333,28 @@ func (m *ServerAuthMessage) Pack(client *Client, nonceReader NonceReader) ([]byt
 // NewInitiatorMessage //
 type NewInitiatorMessage struct {
 	BaseMessage
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewNewInitiatorMessage ..
-func NewNewInitiatorMessage(src base.AddressType, dest base.AddressType) *NewInitiatorMessage {
-	return &NewInitiatorMessage{
+func NewNewInitiatorMessage(src base.AddressType, dest base.AddressType, opts ...func(*NewInitiatorMessage)) *NewInitiatorMessage {
+	msg := &NewInitiatorMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
 	}
+
+	for _, opt := range opts {
+		opt(msg)
+	}
+
+	return msg
 }
 
 // Pack ..
-func (m *NewInitiatorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *NewInitiatorMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 	}{
@@ -302,7 +371,7 @@ func (m *NewInitiatorMessage) Pack(client *Client, nonceReader NonceReader) ([]b
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -311,22 +380,28 @@ func (m *NewInitiatorMessage) Pack(client *Client, nonceReader NonceReader) ([]b
 // NewResponderMessage //
 type NewResponderMessage struct {
 	BaseMessage
-	responderId base.AddressType
+	responderId     base.AddressType
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewNewResponderMessage ..
-func NewNewResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType) *NewResponderMessage {
-	return &NewResponderMessage{
+func NewNewResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType, opts ...func(*NewResponderMessage)) *NewResponderMessage {
+	msg := &NewResponderMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
 		responderId: responderId,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *NewResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *NewResponderMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 		Id   uint8            `codec:"id"`
@@ -345,7 +420,7 @@ func (m *NewResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]b
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -354,18 +429,20 @@ func (m *NewResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]b
 // DropResponderMessage //
 type DropResponderMessage struct {
 	BaseMessage
-	responderId base.AddressType
-	reason      int
+	responderId     base.AddressType
+	reason          int
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewDropResponderMessage ..
-func NewDropResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType) *DropResponderMessage {
-	return NewDropResponderMessageWithReason(src, dest, responderId, base.CloseCodeDropByInitiator)
+func NewDropResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType, opts ...func(*DropResponderMessage)) *DropResponderMessage {
+	return NewDropResponderMessageWithReason(src, dest, responderId, base.CloseCodeDropByInitiator, opts...)
 }
 
 // NewDropResponderMessageWithReason ..
-func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressType, responderId base.AddressType, reason int) *DropResponderMessage {
-	return &DropResponderMessage{
+func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressType, responderId base.AddressType, reason int, opts ...func(*DropResponderMessage)) *DropResponderMessage {
+	msg := &DropResponderMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
@@ -373,10 +450,15 @@ func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressTy
 		responderId: responderId,
 		reason:      reason,
 	}
+
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *DropResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *DropResponderMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type   base.MessageType `codec:"type"`
 		Id     uint8            `codec:"id"`
@@ -397,7 +479,7 @@ func (m *DropResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -406,22 +488,28 @@ func (m *DropResponderMessage) Pack(client *Client, nonceReader NonceReader) ([]
 // SendErrorMessage //
 type SendErrorMessage struct {
 	BaseMessage
-	messageId []byte
+	messageId       []byte
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewSendErrorMessage ..
-func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId []byte) *SendErrorMessage {
-	return &SendErrorMessage{
+func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId []byte, opts ...func(*SendErrorMessage)) *SendErrorMessage {
+	msg := &SendErrorMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
 		messageId: messageId,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *SendErrorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *SendErrorMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
 		Type base.MessageType `codec:"type"`
 		Id   []byte           `codec:"id"`
@@ -440,7 +528,7 @@ func (m *SendErrorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 
@@ -449,22 +537,28 @@ func (m *SendErrorMessage) Pack(client *Client, nonceReader NonceReader) ([]byte
 // DisconnectedMessage //
 type DisconnectedMessage struct {
 	BaseMessage
-	clientId []byte
+	clientId        []byte
+	clientKey       [base.KeyBytesSize]byte
+	serverSessionSk [base.KeyBytesSize]byte
 }
 
 // NewDisconnectedMessage ..
-func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientId []byte) *DisconnectedMessage {
-	return &DisconnectedMessage{
+func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientId []byte, opts ...func(*DisconnectedMessage)) *DisconnectedMessage {
+	msg := &DisconnectedMessage{
 		BaseMessage: BaseMessage{
 			src:  src,
 			dest: dest,
 		},
 		clientId: clientId,
 	}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // Pack ..
-func (m *DisconnectedMessage) Pack(client *Client, nonceReader NonceReader) ([]byte, error) {
+func (m *DisconnectedMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 
 	payload := struct {
 		Type base.MessageType `codec:"type"`
@@ -484,7 +578,7 @@ func (m *DisconnectedMessage) Pack(client *Client, nonceReader NonceReader) ([]b
 		return nil, err
 	}
 
-	encryptedPayload, err := encryptPayload(client, nonce, encodedPayload)
+	encryptedPayload, err := encryptPayload(m.clientKey, m.serverSessionSk, nonce, encodedPayload)
 	return encryptedPayload, err
 }
 

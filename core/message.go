@@ -51,9 +51,14 @@ func UnpackRaw(data []byte) (RawData, error) {
 }
 
 // Pack encodes message and returns bytes data
-func Pack(client *Client, src base.AddressType, dest base.AddressType,
-	payloadPacker PayloadPacker) ([]byte, error) {
-	if client.CombinedSequenceNumberOut.HasErrOverflowSentinel() {
+func Pack(noncePacker NoncePacker, payloadPacker PayloadPacker) ([]byte, error) {
+	csnOut := noncePacker.Csn()
+	src := noncePacker.Src()
+	dest := noncePacker.Dest()
+
+	cookieOut, _ := noncePacker.Cookie()
+
+	if csnOut.HasErrOverflowSentinel() {
 		return nil, base.NewMessageFlowError("Cannot send any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 	}
 
@@ -61,10 +66,10 @@ func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	dw := bufio.NewWriter(data)
 
 	// pack nonce //
-	dw.Write(client.CookieOut)
+	dw.Write(cookieOut)
 	dw.WriteByte(src)
 	dw.WriteByte(dest)
-	csnBytes, err := client.CombinedSequenceNumberOut.AsBytes()
+	csnBytes, err := csnOut.AsBytes()
 	if err != nil {
 		dw.Flush()
 		return nil, err
@@ -74,7 +79,7 @@ func Pack(client *Client, src base.AddressType, dest base.AddressType,
 
 	// pack payload //
 	if payloadPacker != nil {
-		payload, err := payloadPacker.Pack(client, (func() ([]byte, error) {
+		payload, err := payloadPacker.Pack((func() ([]byte, error) {
 			err1 := dw.Flush()
 			return data.Bytes(), err1
 		}))
@@ -98,12 +103,12 @@ func Pack(client *Client, src base.AddressType, dest base.AddressType,
 	if err != nil {
 		return nil, err
 	}
-	client.CombinedSequenceNumberOut.Increment()
+	csnOut.Increment()
 	return data.Bytes(), nil
 }
 
 // Unpack decodes data and returns appropriate Message
-func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (message interface{}, resultError error) {
+func Unpack(nonceUnpacker NonceUnpacker, data []byte, rawDataUnpacker RawDataUnpacker) (message interface{}, resultError error) {
 	rawData, err := rawDataUnpacker(data)
 	if err != nil {
 		return nil, err
@@ -116,22 +121,22 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 
 	// Validate destination
 	isToServer := destType == base.Server
-	if typeVal, typeHasVal := client.GetType(); !isToServer && !(client.Authenticated && typeHasVal && typeVal != destType) {
+	if typeVal, typeHasVal := nonceUnpacker.Type(); !isToServer && !(nonceUnpacker.Authenticated() && typeHasVal && typeVal != destType) {
 		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", rawData.Dest), ErrNotAllowedMessage)
 	}
 
 	// Validate source
-	if client.Id != rawData.Source {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", client.Id, rawData.Source), ErrNotMatchedIdentities)
+	if nonceUnpacker.Id() != rawData.Source {
+		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", nonceUnpacker.Id(), rawData.Source), ErrNotMatchedIdentities)
 	}
 
-	var chkUpSetCookieIn *base.CheckUp
 	// Validate cookie
 	if isToServer {
-		if chkUpSetCookieIn = client.CheckAndSetCookieIn(rawData.Cookie); chkUpSetCookieIn.Err != nil {
-			return nil, fmt.Errorf("Invalid cookie: 0x%x. err: %+v", rawData.Cookie, chkUpSetCookieIn.Err)
+		doCookieIn, err := nonceUnpacker.MakeCookieWriter(rawData.Cookie)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid cookie: 0x%x. err: %+v", rawData.Cookie, err)
 		}
-		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { chkUpSetCookieIn.Eval(); return *prevGuard })
+		deferWithGuard.Push(func(prevGuard *func() bool) func() bool { doCookieIn(); return *prevGuard })
 	}
 
 	// validate and increase csn
@@ -140,21 +145,23 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 		if err != nil {
 			return nil, err
 		}
-		if client.CombinedSequenceNumberIn == nil {
+		csnIn := nonceUnpacker.Csn()
+		if csnIn == nil {
 			if csn.GetOverflowNumber() != 0 {
 				return nil, base.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
 			}
-			client.CombinedSequenceNumberIn = csn
+			nonceUnpacker.ReceiveCsn(csn)
+			csnIn = csn
 		} else {
-			if client.CombinedSequenceNumberIn.HasErrOverflowSentinel() {
+			if csnIn.HasErrOverflowSentinel() {
 				return nil, base.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 			}
-			if !client.CombinedSequenceNumberIn.EqualsTo(csn) {
+			if !csnIn.EqualsTo(csn) {
 				return nil, base.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
 			}
 		}
 		deferWithGuard.Push(func(prevGuard *func() bool) func() bool {
-			client.CombinedSequenceNumberIn.Increment()
+			csnIn.Increment()
 			return *prevGuard
 		})
 	}
@@ -163,7 +170,7 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 	}
 
 	var payload PayloadUnion
-	decryptedPayload, err := decryptPayload(client, rawData.Nonce, rawData.Payload)
+	decryptedPayload, err := decryptPayload(nonceUnpacker.ClientKey(), nonceUnpacker.ServerSessionSk(), rawData.Nonce, rawData.Payload)
 	decodeData := decryptedPayload
 	if err != nil {
 		decodeData = rawData.Payload
@@ -175,63 +182,86 @@ func Unpack(client *Client, data []byte, rawDataUnpacker RawDataUnpacker) (messa
 
 	switch payload.Type {
 	case base.ServerHello:
-		if serverPk, err := nacl.ConvertBoxPkToBytes(payload.Key); err == nil {
-			return NewServerHelloMessage(rawData.Source, rawData.Dest, serverPk), nil
-		}
-		return nil, NewPayloadFieldError(base.ServerHello, "key", err)
+		return parseServerHello(&payload, &rawData)
 	case base.ClientHello:
-		if clientPk, err := nacl.ConvertBoxPkToBytes(payload.Key); err == nil {
-			return NewClientHelloMessage(rawData.Source, rawData.Dest, clientPk), nil
-		}
-		return nil, NewPayloadFieldError(base.ClientHello, "key", err)
+		return parseClientHello(&payload, &rawData)
 	case base.ClientAuth:
-		// your_cookie
-		yourCookie, err := msgutil.ParseYourCookie(payload.YourCookie)
-		if err != nil {
-			return nil, NewPayloadFieldError(base.ClientAuth, "your_cookie", err)
-		}
-
-		// subprotocols
-		subprotocols, err := msgutil.ParseSubprotocols(payload.Subprotocols)
-		if err != nil {
-			return nil, NewPayloadFieldError(base.ClientAuth, "subprotocols", err)
-		}
-
-		// your_key
-		yourKey, err := msgutil.ParseYourKey(payload.YourKey)
-		if err != nil {
-			return nil, NewPayloadFieldError(base.ClientAuth, "your_key", err)
-		}
-
-		return NewClientAuthMessage(rawData.Source, rawData.Dest, yourCookie, subprotocols, payload.PingInterval, yourKey), nil
+		return parseClientAuth(&payload, &rawData)
 	case base.NewInitiator:
-		return NewNewInitiatorMessage(rawData.Source, rawData.Dest), nil
+		return parseNewInitiator(&rawData)
 	case base.NewResponder:
-		id, err := msgutil.ParseAddressId(payload.Id)
-		if err != nil {
-			return nil, NewPayloadFieldError(base.NewResponder, "id", err)
-		}
-		return NewNewResponderMessage(rawData.Source, rawData.Dest, id), nil
+		return parseNewResponder(&payload, &rawData)
 	case base.DropResponder:
-		id, err := msgutil.ParseAddressId(payload.Id)
-		if err != nil || id <= base.Initiator {
-			return nil, NewPayloadFieldError(base.DropResponder, "id", err)
-		}
-		reason, err := msgutil.ParseReasonCode(payload.Reason)
-		if err != nil {
-			return NewDropResponderMessageWithReason(rawData.Source, rawData.Dest, id, reason), nil
-		}
-		return NewDropResponderMessage(rawData.Source, rawData.Dest, id), nil
+		return parseDropResponder(&payload, &rawData)
 	default:
 		return nil, NewPayloadFieldError(payload.Type, "type", ErrInvalidFieldValue)
 	}
 }
 
-func signKeys(c *Client, nonce []byte) []byte {
+func parseServerHello(payload *PayloadUnion, rawData *RawData) (*ServerHelloMessage, error) {
+	serverPk, err := nacl.ConvertBoxPkToBytes(payload.Key)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.ServerHello, "key", err)
+	}
+	return NewServerHelloMessage(rawData.Source, rawData.Dest, serverPk), nil
+}
+
+func parseClientHello(payload *PayloadUnion, rawData *RawData) (*ClientHelloMessage, error) {
+	clientPk, err := nacl.ConvertBoxPkToBytes(payload.Key)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.ClientHello, "key", err)
+	}
+	return NewClientHelloMessage(rawData.Source, rawData.Dest, clientPk), nil
+}
+
+func parseClientAuth(payload *PayloadUnion, rawData *RawData) (*ClientAuthMessage, error) {
+	// your_cookie
+	yourCookie, err := msgutil.ParseYourCookie(payload.YourCookie)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.ClientAuth, "your_cookie", err)
+	}
+	// subprotocols
+	subprotocols, err := msgutil.ParseSubprotocols(payload.Subprotocols)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.ClientAuth, "subprotocols", err)
+	}
+	// your_key
+	yourKey, err := msgutil.ParseYourKey(payload.YourKey)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.ClientAuth, "your_key", err)
+	}
+	return NewClientAuthMessage(rawData.Source, rawData.Dest, yourCookie, subprotocols, payload.PingInterval, yourKey), nil
+}
+
+func parseNewInitiator(rawData *RawData) (*NewInitiatorMessage, error) {
+	return NewNewInitiatorMessage(rawData.Source, rawData.Dest), nil
+}
+
+func parseNewResponder(payload *PayloadUnion, rawData *RawData) (*NewResponderMessage, error) {
+	id, err := msgutil.ParseAddressId(payload.Id)
+	if err != nil {
+		return nil, NewPayloadFieldError(base.NewResponder, "id", err)
+	}
+	return NewNewResponderMessage(rawData.Source, rawData.Dest, id), nil
+}
+
+func parseDropResponder(payload *PayloadUnion, rawData *RawData) (*DropResponderMessage, error) {
+	id, err := msgutil.ParseAddressId(payload.Id)
+	if err != nil || id <= base.Initiator {
+		return nil, NewPayloadFieldError(base.DropResponder, "id", err)
+	}
+	reason, err := msgutil.ParseReasonCode(payload.Reason)
+	if err != nil {
+		return NewDropResponderMessageWithReason(rawData.Source, rawData.Dest, id, reason), nil
+	}
+	return NewDropResponderMessage(rawData.Source, rawData.Dest, id), nil
+}
+
+func signKeys(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionPk [nacl.NaclKeyBytesSize]byte, serverPermanentSk [nacl.NaclKeyBytesSize]byte, nonce []byte) []byte {
 	var nonceArr [base.NonceLength]byte
 	copy(nonceArr[:], nonce[:base.NonceLength])
 	var buf bytes.Buffer
-	buf.Write(c.ServerSessionBox.Pk[:])
-	buf.Write(c.ClientKey[:])
-	return box.Seal(nil, buf.Bytes(), &nonceArr, &c.ClientKey, &c.ServerPermanentBox.Sk)
+	buf.Write(serverSessionPk[:])
+	buf.Write(clientKey[:])
+	return box.Seal(nil, buf.Bytes(), &nonceArr, &clientKey, &serverPermanentSk)
 }
