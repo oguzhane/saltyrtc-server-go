@@ -8,7 +8,7 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/core"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
 )
 
 var server *core.Server

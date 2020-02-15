@@ -7,7 +7,7 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
 )
 
 func TestServerHelloMessage(t *testing.T) {

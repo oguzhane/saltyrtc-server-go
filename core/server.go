@@ -7,10 +7,9 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/hexutil"
+	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/gopool"
 	"github.com/gammazero/workerpool"
 	ws "github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
@@ -26,7 +25,6 @@ const (
 // Server handles clients
 type Server struct {
 	paths          *Paths
-	jobQueue       chan gopool.Job
 	wp             *workerpool.WorkerPool
 	subprotocols   []string
 	subprotocol    string
