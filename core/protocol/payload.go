@@ -1,4 +1,4 @@
-package core
+package protocol
 
 import (
 	"bufio"
@@ -30,7 +30,29 @@ var (
 	ErrCantDecryptPayload = errors.New("cant decrypt payload")
 )
 
-func encodePayload(payload interface{}) ([]byte, error) {
+// DecodePayload ..
+func DecodePayload(encodedPayload []byte, v interface{}) error {
+	h := new(codec.MsgpackHandle) // todo: allocate on stack??
+	h.WriteExt = true
+	h.ErrorIfNoField = true
+	dec := codec.NewDecoderBytes(encodedPayload, h)
+	err := dec.Decode(v)
+	return err
+}
+
+// DecryptPayload ..
+func DecryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, data []byte) ([]byte, error) {
+	var nonceArr [base.NonceLength]byte
+	copy(nonceArr[:], nonce[:base.NonceLength])
+	decryptedData, ok := box.Open(nil, data, &nonceArr, &clientKey, &serverSessionSk)
+	if !ok {
+		return nil, ErrCantDecryptPayload
+	}
+	return decryptedData, nil
+}
+
+// EncodePayload ..
+func EncodePayload(payload interface{}) ([]byte, error) {
 	b := new(bytes.Buffer)
 	bw := bufio.NewWriter(b)
 	h := new(codec.MsgpackHandle)
@@ -45,39 +67,23 @@ func encodePayload(payload interface{}) ([]byte, error) {
 	return b.Bytes(), err
 }
 
-func decodePayload(encodedPayload []byte) (PayloadUnion, error) {
-	h := new(codec.MsgpackHandle)
-	h.WriteExt = true
-	h.ErrorIfNoField = true
-	dec := codec.NewDecoderBytes(encodedPayload, h)
-	v := PayloadUnion{}
-	err := dec.Decode(&v)
-	return v, err
-}
-
-func encryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, encodedPayload []byte) ([]byte, error) {
+// EncryptPayload ..
+func EncryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, encodedPayload []byte) ([]byte, error) {
 	var nonceArr [base.NonceLength]byte
 	copy(nonceArr[:], nonce[:base.NonceLength])
 	return box.Seal(nil, encodedPayload, &nonceArr, &clientKey, &serverSessionSk), nil
 }
 
-func decryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, data []byte) ([]byte, error) {
+func SignKeys(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionPk [nacl.NaclKeyBytesSize]byte, serverPermanentSk [nacl.NaclKeyBytesSize]byte, nonce []byte) []byte {
 	var nonceArr [base.NonceLength]byte
 	copy(nonceArr[:], nonce[:base.NonceLength])
-	decryptedData, ok := box.Open(nil, data, &nonceArr, &clientKey, &serverSessionSk)
-	if !ok {
-		return nil, ErrCantDecryptPayload
-	}
-	return decryptedData, nil
+	var buf bytes.Buffer
+	buf.Write(serverSessionPk[:])
+	buf.Write(clientKey[:])
+	return box.Seal(nil, buf.Bytes(), &nonceArr, &clientKey, &serverPermanentSk)
 }
 
-// PayloadPacker ..
-type PayloadPacker interface {
-	Pack(nonceReader NonceReader) ([]byte, error)
-}
-
-// PayloadUnion ..
-type PayloadUnion struct {
+type payloadUnion struct {
 	Type               base.MessageType `codec:"type"`
 	Key                []byte           `codec:"key,omitempty"`
 	YourCookie         []byte           `codec:"your_cookie,omitempty"`
