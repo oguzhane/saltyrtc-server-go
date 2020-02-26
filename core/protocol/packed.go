@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
@@ -175,17 +174,17 @@ func UnmarshalMessage(f Frame) (msg interface{}, err error) {
 		return
 	}
 	switch payload.Type {
-	case base.ServerHello:
+	case ServerHello:
 		return parseServerHello(payload, f)
-	case base.ClientHello:
+	case ClientHello:
 		return parseClientHello(payload, f)
-	case base.ClientAuth:
+	case ClientAuth:
 		return parseClientAuth(payload, f)
-	case base.NewInitiator:
+	case NewInitiator:
 		return parseNewInitiator(payload, f)
-	case base.NewResponder:
+	case NewResponder:
 		return parseNewResponder(payload, f)
-	case base.DropResponder:
+	case DropResponder:
 		return parseDropResponder(payload, f)
 	default:
 		return nil, NewPayloadFieldError(payload.Type, "type", ErrInvalidFieldValue)
@@ -195,7 +194,7 @@ func UnmarshalMessage(f Frame) (msg interface{}, err error) {
 func parseServerHello(p payloadUnion, f Frame) (*ServerHelloMessage, error) {
 	serverPk, err := nacl.ConvertBoxPkToBytes(p.Key)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.ServerHello, "key", err)
+		return nil, NewPayloadFieldError(ServerHello, "key", err)
 	}
 	return NewServerHelloMessage(f.Header.Src, f.Header.Dest, serverPk), nil
 }
@@ -203,7 +202,7 @@ func parseServerHello(p payloadUnion, f Frame) (*ServerHelloMessage, error) {
 func parseClientHello(p payloadUnion, f Frame) (*ClientHelloMessage, error) {
 	clientPk, err := nacl.ConvertBoxPkToBytes(p.Key)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.ClientHello, "key", err)
+		return nil, NewPayloadFieldError(ClientHello, "key", err)
 	}
 	return NewClientHelloMessage(f.Header.Src, f.Header.Dest, clientPk), nil
 }
@@ -212,17 +211,17 @@ func parseClientAuth(p payloadUnion, f Frame) (*ClientAuthMessage, error) {
 	// your_cookie
 	yourCookie, err := ParseYourCookie(p.YourCookie)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.ClientAuth, "your_cookie", err)
+		return nil, NewPayloadFieldError(ClientAuth, "your_cookie", err)
 	}
 	// subprotocols
 	subprotocols, err := ParseSubprotocols(p.Subprotocols)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.ClientAuth, "subprotocols", err)
+		return nil, NewPayloadFieldError(ClientAuth, "subprotocols", err)
 	}
 	// your_key
 	yourKey, err := ParseYourKey(p.YourKey)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.ClientAuth, "your_key", err)
+		return nil, NewPayloadFieldError(ClientAuth, "your_key", err)
 	}
 	return NewClientAuthMessage(f.Header.Src, f.Header.Dest, yourCookie, subprotocols, p.PingInterval, yourKey), nil
 }
@@ -234,7 +233,7 @@ func parseNewInitiator(p payloadUnion, f Frame) (*NewInitiatorMessage, error) {
 func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
 	id, err := ParseAddressId(p.Id)
 	if err != nil {
-		return nil, NewPayloadFieldError(base.NewResponder, "id", err)
+		return nil, NewPayloadFieldError(NewResponder, "id", err)
 	}
 	return NewNewResponderMessage(f.Header.Src, f.Header.Dest, id), nil
 }
@@ -242,7 +241,7 @@ func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
 func parseDropResponder(p payloadUnion, f Frame) (*DropResponderMessage, error) {
 	id, err := ParseAddressId(p.Id)
 	if err != nil || id <= Initiator {
-		return nil, NewPayloadFieldError(base.DropResponder, "id", err)
+		return nil, NewPayloadFieldError(DropResponder, "id", err)
 	}
 	reason, err := ParseReasonCode(p.Reason)
 	if err != nil {

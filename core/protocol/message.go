@@ -5,6 +5,20 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
+type MessageType = string
+
+const (
+	ServerHello   MessageType = "server-hello"
+	ClientHello   MessageType = "client-hello"
+	ClientAuth    MessageType = "client-auth"
+	ServerAuth    MessageType = "server-auth"
+	NewResponder  MessageType = "new-responder"
+	NewInitiator  MessageType = "new-initiator"
+	DropResponder MessageType = "drop-responder"
+	SendError     MessageType = "send-error"
+	Disconnected  MessageType = "disconnected"
+)
+
 // BaseMessage //
 type BaseMessage struct {
 	Src  AddressType
@@ -33,10 +47,10 @@ func NewClientHelloMessage(src AddressType, dest AddressType, clientPublicKey []
 // MarshalPayload ..
 func (m *ClientHelloMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type base.MessageType `codec:"type"`
-		Key  []byte           `codec:"key"`
+		Type MessageType `codec:"type"`
+		Key  []byte      `codec:"key"`
 	}{
-		Type: base.ClientHello,
+		Type: ClientHello,
 		Key:  m.ClientPublicKey,
 	}
 	return EncodePayload(payload)
@@ -88,10 +102,10 @@ func NewServerHelloMessage(src AddressType, dest AddressType, serverPublicKey []
 // MarshalPayload ..
 func (m *ServerHelloMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type base.MessageType `codec:"type"`
-		Key  []byte           `codec:"key"`
+		Type MessageType `codec:"type"`
+		Key  []byte      `codec:"key"`
 	}{
-		Type: base.ServerHello,
+		Type: ServerHello,
 		Key:  m.serverPublicKey,
 	}
 	return EncodePayload(payload)
@@ -134,13 +148,13 @@ func NewClientAuthMessage(src AddressType, dest AddressType, serverCookie []byte
 // MarshalPayload ..
 func (m *ClientAuthMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type         base.MessageType `codec:"type"`
-		YourCookie   []byte           `codec:"your_cookie"`
-		Subprotocols []string         `codec:"subprotocols"`
-		PingInterval uint32           `codec:"ping_interval"`
-		YourKey      [32]byte         `codec:"your_key"`
+		Type         MessageType `codec:"type"`
+		YourCookie   []byte      `codec:"your_cookie"`
+		Subprotocols []string    `codec:"subprotocols"`
+		PingInterval uint32      `codec:"ping_interval"`
+		YourKey      [32]byte    `codec:"your_key"`
 	}{
-		Type:         base.ClientAuth,
+		Type:         ClientAuth,
 		YourCookie:   m.ServerCookie,
 		Subprotocols: m.Subprotocols,
 		PingInterval: m.PingInterval,
@@ -214,23 +228,23 @@ func (m ServerAuthMessage) MarshalPayload() ([]byte, error) {
 	if !m.towardsInitiator {
 		if m.signKeys {
 			payload = struct {
-				Type               base.MessageType `codec:"type"`
-				YourCookie         []byte           `codec:"your_cookie"`
-				InitiatorConnected bool             `codec:"initiator_connected"`
-				SignedKeys         []byte           `codec:"signed_keys"`
+				Type               MessageType `codec:"type"`
+				YourCookie         []byte      `codec:"your_cookie"`
+				InitiatorConnected bool        `codec:"initiator_connected"`
+				SignedKeys         []byte      `codec:"signed_keys"`
 			}{
-				Type:               base.ServerAuth,
+				Type:               ServerAuth,
 				YourCookie:         m.clientCookie,
 				InitiatorConnected: m.initiatorConnected,
 				SignedKeys:         SignKeys(m.EncodingOpts.ClientKey, m.EncodingOpts.ServerSessionPk, m.EncodingOpts.ServerPermanentSk, m.EncodingOpts.Nonce),
 			}
 		} else {
 			payload = struct {
-				Type               base.MessageType `codec:"type"`
-				YourCookie         []byte           `codec:"your_cookie"`
-				InitiatorConnected bool             `codec:"initiator_connected"`
+				Type               MessageType `codec:"type"`
+				YourCookie         []byte      `codec:"your_cookie"`
+				InitiatorConnected bool        `codec:"initiator_connected"`
 			}{
-				Type:               base.ServerAuth,
+				Type:               ServerAuth,
 				YourCookie:         m.clientCookie,
 				InitiatorConnected: m.initiatorConnected,
 			}
@@ -244,23 +258,23 @@ func (m ServerAuthMessage) MarshalPayload() ([]byte, error) {
 
 		if m.signKeys {
 			payload = struct {
-				Type       base.MessageType `codec:"type"`
-				YourCookie []byte           `codec:"your_cookie"`
-				Responders []uint16         `codec:"responders"`
-				SignedKeys []byte           `codec:"signed_keys"`
+				Type       MessageType `codec:"type"`
+				YourCookie []byte      `codec:"your_cookie"`
+				Responders []uint16    `codec:"responders"`
+				SignedKeys []byte      `codec:"signed_keys"`
 			}{
-				Type:       base.ServerAuth,
+				Type:       ServerAuth,
 				YourCookie: m.clientCookie,
 				Responders: responderArr,
 				SignedKeys: SignKeys(m.EncodingOpts.ClientKey, m.EncodingOpts.ServerSessionPk, m.EncodingOpts.ServerPermanentSk, m.EncodingOpts.Nonce),
 			}
 		} else {
 			payload = struct {
-				Type       base.MessageType `codec:"type"`
-				YourCookie []byte           `codec:"your_cookie"`
-				Responders []uint16         `codec:"responders"`
+				Type       MessageType `codec:"type"`
+				YourCookie []byte      `codec:"your_cookie"`
+				Responders []uint16    `codec:"responders"`
 			}{
-				Type:       base.ServerAuth,
+				Type:       ServerAuth,
 				YourCookie: m.clientCookie,
 				Responders: responderArr,
 			}
@@ -307,9 +321,9 @@ func NewNewInitiatorMessage(src AddressType, dest AddressType) *NewInitiatorMess
 // MarshalPayload ..
 func (m *NewInitiatorMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type base.MessageType `codec:"type"`
+		Type MessageType `codec:"type"`
 	}{
-		Type: base.NewInitiator,
+		Type: NewInitiator,
 	}
 
 	encodedPayload, err := EncodePayload(payload)
@@ -350,10 +364,10 @@ func NewNewResponderMessage(src AddressType, dest AddressType, responderId Addre
 // MarshalPayload ..
 func (m *NewResponderMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type base.MessageType `codec:"type"`
-		Id   uint8            `codec:"id"`
+		Type MessageType `codec:"type"`
+		Id   uint8       `codec:"id"`
 	}{
-		Type: base.NewResponder,
+		Type: NewResponder,
 		Id:   m.responderId,
 	}
 
@@ -401,11 +415,11 @@ func NewDropResponderMessageWithReason(src AddressType, dest AddressType, respon
 
 func (m *DropResponderMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
-		Type   base.MessageType `codec:"type"`
-		Id     uint8            `codec:"id"`
-		Reason int              `codec:"reason"`
+		Type   MessageType `codec:"type"`
+		Id     uint8       `codec:"id"`
+		Reason int         `codec:"reason"`
 	}{
-		Type:   base.DropResponder,
+		Type:   DropResponder,
 		Id:     m.ResponderId,
 		Reason: m.Reason,
 	}
@@ -449,10 +463,10 @@ func NewDisconnectedMessage(src AddressType, dest AddressType, clientId []byte) 
 func (m *DisconnectedMessage) MarshalPayload() ([]byte, error) {
 
 	payload := struct {
-		Type base.MessageType `codec:"type"`
-		Id   []byte           `codec:"id"`
+		Type MessageType `codec:"type"`
+		Id   []byte      `codec:"id"`
 	}{
-		Type: base.Disconnected,
+		Type: Disconnected,
 		Id:   m.clientId,
 	}
 
@@ -494,10 +508,10 @@ func NewSendErrorMessage(src AddressType, dest AddressType, messageId []byte, op
 // Pack ..
 func (m *SendErrorMessage) Pack(nonceReader NonceReader) ([]byte, error) {
 	payload := struct {
-		Type base.MessageType `codec:"type"`
+		Type MessageType `codec:"type"`
 		Id   []byte           `codec:"id"`
 	}{
-		Type: base.SendError,
+		Type: SendError,
 		Id:   m.messageId,
 	}
 

@@ -84,17 +84,17 @@ func SignKeys(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionPk [nacl.NaclK
 }
 
 type payloadUnion struct {
-	Type               base.MessageType `codec:"type"`
-	Key                []byte           `codec:"key,omitempty"`
-	YourCookie         []byte           `codec:"your_cookie,omitempty"`
-	Subprotocols       []string         `codec:"subprotocols,omitempty"`
-	PingInterval       uint32           `codec:"ping_interval,omitempty"`
-	YourKey            []byte           `codec:"your_key,omitempty"`
-	InitiatorConnected bool             `codec:"initiator_connected,omitempty"`
-	Responders         []uint16         `codec:"responders,omitempty"`
-	SignedKeys         []byte           `codec:"signed_keys,omitempty"`
-	Id                 interface{}      `codec:"id,omitempty"`
-	Reason             int              `codec:"reason,omitempty"`
+	Type               MessageType `codec:"type"`
+	Key                []byte      `codec:"key,omitempty"`
+	YourCookie         []byte      `codec:"your_cookie,omitempty"`
+	Subprotocols       []string    `codec:"subprotocols,omitempty"`
+	PingInterval       uint32      `codec:"ping_interval,omitempty"`
+	YourKey            []byte      `codec:"your_key,omitempty"`
+	InitiatorConnected bool        `codec:"initiator_connected,omitempty"`
+	Responders         []uint16    `codec:"responders,omitempty"`
+	SignedKeys         []byte      `codec:"signed_keys,omitempty"`
+	Id                 interface{} `codec:"id,omitempty"`
+	Reason             int         `codec:"reason,omitempty"`
 }
 
 // PayloadFieldError ..
