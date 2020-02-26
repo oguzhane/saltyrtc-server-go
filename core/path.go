@@ -1,6 +1,7 @@
 package core
 
 import (
+	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	hm "github.com/cornelk/hashmap"
 )
@@ -10,7 +11,7 @@ type Path struct {
 	key      string
 	number   uint32
 	slots    *hm.HashMap
-	lastSlot base.AddressType
+	lastSlot prot.AddressType
 	orphan   bool
 }
 
@@ -20,25 +21,25 @@ func NewPath(key string, number uint32) *Path {
 		key:      key,
 		number:   number,
 		slots:    &hm.HashMap{},
-		lastSlot: base.Initiator,
+		lastSlot: prot.Initiator,
 	}
 }
 
 // SetInitiator ..
 func (p *Path) SetInitiator(c *Client) {
-	p.slots.Set(base.Initiator, c)
+	p.slots.Set(prot.Initiator, c)
 }
 
 // GetInitiator ..
 func (p *Path) GetInitiator() (*Client, bool) {
-	return p.Get(base.Initiator)
+	return p.Get(prot.Initiator)
 }
 
 // AddResponder ..
-func (p *Path) AddResponder(c *Client) (base.AddressType, error) {
+func (p *Path) AddResponder(c *Client) (prot.AddressType, error) {
 	lastSlot := p.lastSlot
-	var responderID base.AddressType = lastSlot + 0x01 //0x02
-	for ; responderID <= base.Responder; responderID = responderID + 0x01 {
+	var responderID prot.AddressType = lastSlot + 0x01 //0x02
+	for ; responderID <= prot.Responder; responderID = responderID + 0x01 {
 		_, loaded := p.slots.GetOrInsert(responderID, c)
 		if !loaded {
 			p.lastSlot = responderID
@@ -53,16 +54,16 @@ func (p *Path) AddResponder(c *Client) (base.AddressType, error) {
 			return responderID, nil
 		}
 	}
-	return base.Server, base.NewSlotsFullError("No free slot on path")
+	return prot.Server, base.NewSlotsFullError("No free slot on path")
 }
 
 // Del ..
-func (p *Path) Del(id base.AddressType) {
+func (p *Path) Del(id prot.AddressType) {
 	p.slots.Del(id)
 }
 
 // Get ..
-func (p *Path) Get(id base.AddressType) (*Client, bool) {
+func (p *Path) Get(id prot.AddressType) (*Client, bool) {
 	v, ok := p.slots.Get(id)
 	c, _ := v.(*Client)
 	return c, ok
@@ -75,8 +76,8 @@ func (p *Path) Iter() <-chan hm.KeyValue {
 
 // Walk ..
 func (p *Path) Walk(cb func(c *Client)) {
-	var id base.AddressType = base.Initiator
-	for ; id <= base.Responder; id = id + 0x01 {
+	var id prot.AddressType = prot.Initiator
+	for ; id <= prot.Responder; id = id + 0x01 {
 		if v, ok := p.slots.Get(id); ok {
 			c := v.(*Client)
 			cb(c)

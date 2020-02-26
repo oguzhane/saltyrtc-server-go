@@ -1,4 +1,4 @@
-package base
+package protocol
 
 import (
 	"testing"

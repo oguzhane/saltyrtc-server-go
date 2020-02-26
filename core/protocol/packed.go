@@ -6,7 +6,6 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/msgutil"
 )
 
 const (
@@ -211,17 +210,17 @@ func parseClientHello(p payloadUnion, f Frame) (*ClientHelloMessage, error) {
 
 func parseClientAuth(p payloadUnion, f Frame) (*ClientAuthMessage, error) {
 	// your_cookie
-	yourCookie, err := msgutil.ParseYourCookie(p.YourCookie)
+	yourCookie, err := ParseYourCookie(p.YourCookie)
 	if err != nil {
 		return nil, NewPayloadFieldError(base.ClientAuth, "your_cookie", err)
 	}
 	// subprotocols
-	subprotocols, err := msgutil.ParseSubprotocols(p.Subprotocols)
+	subprotocols, err := ParseSubprotocols(p.Subprotocols)
 	if err != nil {
 		return nil, NewPayloadFieldError(base.ClientAuth, "subprotocols", err)
 	}
 	// your_key
-	yourKey, err := msgutil.ParseYourKey(p.YourKey)
+	yourKey, err := ParseYourKey(p.YourKey)
 	if err != nil {
 		return nil, NewPayloadFieldError(base.ClientAuth, "your_key", err)
 	}
@@ -233,7 +232,7 @@ func parseNewInitiator(p payloadUnion, f Frame) (*NewInitiatorMessage, error) {
 }
 
 func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
-	id, err := msgutil.ParseAddressId(p.Id)
+	id, err := ParseAddressId(p.Id)
 	if err != nil {
 		return nil, NewPayloadFieldError(base.NewResponder, "id", err)
 	}
@@ -241,11 +240,11 @@ func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
 }
 
 func parseDropResponder(p payloadUnion, f Frame) (*DropResponderMessage, error) {
-	id, err := msgutil.ParseAddressId(p.Id)
-	if err != nil || id <= base.Initiator {
+	id, err := ParseAddressId(p.Id)
+	if err != nil || id <= Initiator {
 		return nil, NewPayloadFieldError(base.DropResponder, "id", err)
 	}
-	reason, err := msgutil.ParseReasonCode(p.Reason)
+	reason, err := ParseReasonCode(p.Reason)
 	if err != nil {
 		return NewDropResponderMessageWithReason(f.Header.Src, f.Header.Dest, id, reason), nil
 	}

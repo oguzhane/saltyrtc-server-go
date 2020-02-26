@@ -38,8 +38,8 @@ type Client struct {
 	CombinedSequenceNumberIn  *CombinedSequenceNumber
 
 	Authenticated bool
-	Id            base.AddressType
-	typeValue     base.AddressType
+	Id            prot.AddressType
+	typeValue     prot.AddressType
 	typeHasValue  bool
 	Path          *Path
 	Server        *Server
@@ -92,12 +92,12 @@ func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
 }
 
 // GetType ..
-func (c *Client) GetType() (base.AddressType, bool) {
+func (c *Client) GetType() (prot.AddressType, bool) {
 	return c.typeValue, c.typeHasValue
 }
 
 // SetType ..
-func (c *Client) SetType(t base.AddressType) {
+func (c *Client) SetType(t prot.AddressType) {
 	c.typeHasValue = true
 	c.typeValue = t
 }
@@ -151,13 +151,13 @@ func (c *Client) getHeader(dest uint8) (h prot.Header, err error) {
 		Cookie: c.CookieOut,
 		Csn:    csnOut,
 		Dest:   dest,
-		Src:    base.Server,
+		Src:    prot.Server,
 	}
 	return
 }
 
 func (c *Client) sendServerHello() (err error) {
-	msg := prot.NewServerHelloMessage(base.Server, c.Id, c.ServerSessionBox.Pk[:])
+	msg := prot.NewServerHelloMessage(prot.Server, c.Id, c.ServerSessionBox.Pk[:])
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -180,7 +180,7 @@ func (c *Client) sendServerHello() (err error) {
 }
 
 func (c *Client) sendNewInitiator() (err error) {
-	msg := prot.NewNewInitiatorMessage(base.Server, c.Id)
+	msg := prot.NewNewInitiatorMessage(prot.Server, c.Id)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -204,7 +204,7 @@ func (c *Client) sendNewInitiator() (err error) {
 }
 
 func (c *Client) sendNewResponder(responderID uint8) (err error) {
-	msg := prot.NewNewResponderMessage(base.Server, c.Id, responderID)
+	msg := prot.NewNewResponderMessage(prot.Server, c.Id, responderID)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -230,9 +230,9 @@ func (c *Client) sendNewResponder(responderID uint8) (err error) {
 
 func (c *Client) sendServerAuth() (err error) {
 	var msg *prot.ServerAuthMessage
-	if clientType, _ := c.GetType(); clientType == base.Initiator {
+	if clientType, _ := c.GetType(); clientType == prot.Initiator {
 
-		msg = prot.NewServerAuthMessageForInitiator(base.Server, base.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
+		msg = prot.NewServerAuthMessageForInitiator(prot.Server, prot.Initiator, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, getAuthenticatedResponderIds(c.Path))
 		h, err1 := c.getHeader(msg.Dest)
 		if err1 != nil {
 			err = err1
@@ -265,11 +265,11 @@ func (c *Client) sendServerAuth() (err error) {
 		}
 
 		c.Path.SetInitiator(c)
-		c.Id = base.Initiator
+		c.Id = prot.Initiator
 		c.Authenticated = true
 		c.State = ServerAuth
 
-		Sugar.Debug("New authenticated Initiator: ", base.Initiator)
+		Sugar.Debug("New authenticated Initiator: ", prot.Initiator)
 
 		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
 			// TODO(oergin): consider to send 'new-initiator' message by a new worker
@@ -285,7 +285,7 @@ func (c *Client) sendServerAuth() (err error) {
 		return
 	}
 	clientInit, initiatorConnected := c.Path.GetInitiator()
-	msg = prot.NewServerAuthMessageForResponder(base.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
+	msg = prot.NewServerAuthMessageForResponder(prot.Server, slotID, c.GetCookieIn(), len(c.Server.permanentBoxes) > 0, initiatorConnected && clientInit.Authenticated)
 	h, err1 := c.getHeader(msg.Dest)
 	if err1 != nil {
 		err = err1
@@ -335,7 +335,7 @@ func (c *Client) handleClientHello(msg *prot.ClientHelloMessage) (err error) {
 		return
 	}
 	copy(c.ClientKey[:], msg.ClientPublicKey[0:base.KeyBytesSize])
-	c.SetType(base.Responder)
+	c.SetType(prot.Responder)
 	c.State = ClientHello
 	return
 }
@@ -374,14 +374,14 @@ func (c *Client) handleClientAuth(msg *prot.ClientAuthMessage) (err error) {
 
 	// ServerHello->ClientAuth transition states the method below for initiator handshake
 	if c.State == ServerHello {
-		c.SetType(base.Initiator)
+		c.SetType(prot.Initiator)
 	}
 	c.State = ClientAuth
 	return
 }
 
 func (c *Client) handleDropResponder(msg *prot.DropResponderMessage) (err error) {
-	if !c.Authenticated || c.typeValue != base.Initiator {
+	if !c.Authenticated || c.typeValue != prot.Initiator {
 		err = errors.New("Client is not authenticated, nor initiator")
 		return
 	}
@@ -422,12 +422,12 @@ func (c *Client) DelFromPath() {
 		c.Path.Del(c.Id)
 	}
 }
-func getAuthenticatedResponderIds(p *Path) []base.AddressType {
-	ids := []base.AddressType{}
+func getAuthenticatedResponderIds(p *Path) []prot.AddressType {
+	ids := []prot.AddressType{}
 	for kv := range p.Iter() {
-		k, _ := kv.Key.(base.AddressType)
+		k, _ := kv.Key.(prot.AddressType)
 		v, _ := kv.Value.(*Client)
-		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == base.Responder {
+		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == prot.Responder {
 			ids = append(ids, k)
 		}
 	}
@@ -437,7 +437,7 @@ func getAuthenticatedResponderIds(p *Path) []base.AddressType {
 func iterOnAuthenticatedResponders(p *Path, handler func(c *Client)) {
 	for kv := range p.Iter() {
 		v, _ := kv.Value.(*Client)
-		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == base.Responder {
+		if typeVal, ok := v.GetType(); v.Authenticated && ok && typeVal == prot.Responder {
 			handler(v)
 		}
 	}
@@ -479,10 +479,10 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 		return
 	}
 
-	destType := base.GetAddressTypeFromAddr(f.Header.Dest)
+	destType := prot.GetAddressTypeFromAddr(f.Header.Dest)
 
 	// Validate destination
-	isToServer := destType == base.Server
+	isToServer := destType == prot.Server
 	if typeVal, typeHasVal := c.GetType(); !isToServer && !(c.Authenticated && typeHasVal && typeVal != destType) {
 		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", f.Header.Dest), prot.ErrNotAllowedMessage)
 	}
@@ -492,7 +492,7 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
 	}
 
-	if destType != base.Server {
+	if destType != prot.Server {
 		return prot.NewRawMessage(f.Header.Src, f.Header.Dest, data), nil
 	}
 

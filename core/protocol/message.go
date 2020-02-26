@@ -7,8 +7,8 @@ import (
 
 // BaseMessage //
 type BaseMessage struct {
-	Src  base.AddressType
-	Dest base.AddressType
+	Src  AddressType
+	Dest AddressType
 }
 
 // BaseMessage //
@@ -20,7 +20,7 @@ type ClientHelloMessage struct {
 }
 
 // NewClientHelloMessage ..
-func NewClientHelloMessage(src base.AddressType, dest base.AddressType, clientPublicKey []byte) *ClientHelloMessage {
+func NewClientHelloMessage(src AddressType, dest AddressType, clientPublicKey []byte) *ClientHelloMessage {
 	return &ClientHelloMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -51,7 +51,7 @@ type RawMessage struct {
 }
 
 // NewRawMessage ..
-func NewRawMessage(src base.AddressType, dest base.AddressType, data []byte) *RawMessage {
+func NewRawMessage(src AddressType, dest AddressType, data []byte) *RawMessage {
 	return &RawMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -75,7 +75,7 @@ type ServerHelloMessage struct {
 }
 
 // NewServerHelloMessage ..
-func NewServerHelloMessage(src base.AddressType, dest base.AddressType, serverPublicKey []byte) *ServerHelloMessage {
+func NewServerHelloMessage(src AddressType, dest AddressType, serverPublicKey []byte) *ServerHelloMessage {
 	return &ServerHelloMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -115,7 +115,7 @@ type ClientAuthMessage struct {
 }
 
 // NewClientAuthMessage ..
-func NewClientAuthMessage(src base.AddressType, dest base.AddressType, serverCookie []byte,
+func NewClientAuthMessage(src AddressType, dest AddressType, serverCookie []byte,
 	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte) *ClientAuthMessage {
 	msg := &ClientAuthMessage{
 		BaseMessage: BaseMessage{
@@ -163,7 +163,7 @@ type ServerAuthMessage struct {
 	clientCookie       []byte
 	signKeys           bool
 	initiatorConnected bool
-	responderIds       []base.AddressType
+	responderIds       []AddressType
 	towardsInitiator   bool
 
 	EncodingOpts struct {
@@ -176,8 +176,8 @@ type ServerAuthMessage struct {
 }
 
 // NewServerAuthMessageForInitiator ..
-func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressType, clientCookie []byte,
-	signKeys bool, responderIds []base.AddressType) *ServerAuthMessage {
+func NewServerAuthMessageForInitiator(src AddressType, dest AddressType, clientCookie []byte,
+	signKeys bool, responderIds []AddressType) *ServerAuthMessage {
 	msg := &ServerAuthMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -192,7 +192,7 @@ func NewServerAuthMessageForInitiator(src base.AddressType, dest base.AddressTyp
 }
 
 // NewServerAuthMessageForResponder ..
-func NewServerAuthMessageForResponder(src base.AddressType, dest base.AddressType, clientCookie []byte,
+func NewServerAuthMessageForResponder(src AddressType, dest AddressType, clientCookie []byte,
 	signKeys bool, initiatorConnected bool) *ServerAuthMessage {
 	msg := &ServerAuthMessage{
 		BaseMessage: BaseMessage{
@@ -293,7 +293,7 @@ type NewInitiatorMessage struct {
 }
 
 // NewNewInitiatorMessage ..
-func NewNewInitiatorMessage(src base.AddressType, dest base.AddressType) *NewInitiatorMessage {
+func NewNewInitiatorMessage(src AddressType, dest AddressType) *NewInitiatorMessage {
 	msg := &NewInitiatorMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -326,7 +326,7 @@ func (m *NewInitiatorMessage) MarshalPayload() ([]byte, error) {
 // NewResponderMessage //
 type NewResponderMessage struct {
 	BaseMessage
-	responderId base.AddressType
+	responderId AddressType
 
 	EncodingOpts struct {
 		ClientKey       [base.KeyBytesSize]byte
@@ -336,7 +336,7 @@ type NewResponderMessage struct {
 }
 
 // NewNewResponderMessage ..
-func NewNewResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType) *NewResponderMessage {
+func NewNewResponderMessage(src AddressType, dest AddressType, responderId AddressType) *NewResponderMessage {
 	msg := &NewResponderMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -371,7 +371,7 @@ func (m *NewResponderMessage) MarshalPayload() ([]byte, error) {
 // DropResponderMessage //
 type DropResponderMessage struct {
 	BaseMessage
-	ResponderId base.AddressType
+	ResponderId AddressType
 	Reason      int
 
 	EncodingOpts struct {
@@ -382,12 +382,12 @@ type DropResponderMessage struct {
 }
 
 // NewDropResponderMessage ..
-func NewDropResponderMessage(src base.AddressType, dest base.AddressType, responderId base.AddressType) *DropResponderMessage {
+func NewDropResponderMessage(src AddressType, dest AddressType, responderId AddressType) *DropResponderMessage {
 	return NewDropResponderMessageWithReason(src, dest, responderId, base.CloseCodeDropByInitiator)
 }
 
 // NewDropResponderMessageWithReason ..
-func NewDropResponderMessageWithReason(src base.AddressType, dest base.AddressType, responderId base.AddressType, reason int) *DropResponderMessage {
+func NewDropResponderMessageWithReason(src AddressType, dest AddressType, responderId AddressType, reason int) *DropResponderMessage {
 	msg := &DropResponderMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -434,7 +434,7 @@ type DisconnectedMessage struct {
 }
 
 // NewDisconnectedMessage ..
-func NewDisconnectedMessage(src base.AddressType, dest base.AddressType, clientId []byte) *DisconnectedMessage {
+func NewDisconnectedMessage(src AddressType, dest AddressType, clientId []byte) *DisconnectedMessage {
 	msg := &DisconnectedMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -477,7 +477,7 @@ type SendErrorMessage struct {
 }
 
 // NewSendErrorMessage ..
-func NewSendErrorMessage(src base.AddressType, dest base.AddressType, messageId []byte, opts ...func(*SendErrorMessage)) *SendErrorMessage {
+func NewSendErrorMessage(src AddressType, dest AddressType, messageId []byte, opts ...func(*SendErrorMessage)) *SendErrorMessage {
 	msg := &SendErrorMessage{
 		BaseMessage: BaseMessage{
 			src:  src,

@@ -1,4 +1,4 @@
-package msgutil
+package protocol
 
 import (
 	"errors"
@@ -87,31 +87,31 @@ func IsValidAddressId(id interface{}) bool {
 	if id == nil {
 		return false
 	}
-	_, ok := id.(base.AddressType)
+	_, ok := id.(AddressType)
 	return ok
 }
 
 // ParseAddressId ..
-func ParseAddressId(id interface{}) (base.AddressType, error) {
+func ParseAddressId(id interface{}) (AddressType, error) {
 	if !IsValidAddressId(id) {
 		return 0, errors.New("Invalid address id")
 	}
-	v, _ := id.(base.AddressType)
+	v, _ := id.(AddressType)
 	return v, nil
 }
 
 // IsValidResponderAddressId ..
 func IsValidResponderAddressId(id interface{}) bool {
 	v, err := ParseAddressId(id)
-	return err == nil && base.IsValidResponderAddressType(v)
+	return err == nil && IsValidResponderAddressType(v)
 }
 
 // ParseResponderAddressId ..
-func ParseResponderAddressId(id interface{}) (base.AddressType, error) {
+func ParseResponderAddressId(id interface{}) (AddressType, error) {
 	if !IsValidResponderAddressId(id) {
 		return 0, errors.New("Invalid responder address id")
 	}
-	v, _ := id.(base.AddressType)
+	v, _ := id.(AddressType)
 	return v, nil
 }
 
