@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/ugorji/go/codec"
 	"golang.org/x/crypto/nacl/box"
@@ -42,8 +41,8 @@ func DecodePayload(encodedPayload []byte, v interface{}) error {
 
 // DecryptPayload ..
 func DecryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, data []byte) ([]byte, error) {
-	var nonceArr [base.NonceLength]byte
-	copy(nonceArr[:], nonce[:base.NonceLength])
+	var nonceArr [NonceLength]byte
+	copy(nonceArr[:], nonce[:NonceLength])
 	decryptedData, ok := box.Open(nil, data, &nonceArr, &clientKey, &serverSessionSk)
 	if !ok {
 		return nil, ErrCantDecryptPayload
@@ -69,14 +68,14 @@ func EncodePayload(payload interface{}) ([]byte, error) {
 
 // EncryptPayload ..
 func EncryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, encodedPayload []byte) ([]byte, error) {
-	var nonceArr [base.NonceLength]byte
-	copy(nonceArr[:], nonce[:base.NonceLength])
+	var nonceArr [NonceLength]byte
+	copy(nonceArr[:], nonce[:NonceLength])
 	return box.Seal(nil, encodedPayload, &nonceArr, &clientKey, &serverSessionSk), nil
 }
 
 func SignKeys(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionPk [nacl.NaclKeyBytesSize]byte, serverPermanentSk [nacl.NaclKeyBytesSize]byte, nonce []byte) []byte {
-	var nonceArr [base.NonceLength]byte
-	copy(nonceArr[:], nonce[:base.NonceLength])
+	var nonceArr [NonceLength]byte
+	copy(nonceArr[:], nonce[:NonceLength])
 	var buf bytes.Buffer
 	buf.Write(serverSessionPk[:])
 	buf.Write(clientKey[:])

@@ -48,7 +48,7 @@ type Client struct {
 
 // NewClient ..
 func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *nacl.BoxKeyPair) (*Client, error) {
-	cookieOut, err := randutil.RandBytes(base.CookieLength)
+	cookieOut, err := randutil.RandBytes(prot.CookieLength)
 	if err != nil {
 		return nil, err
 	}

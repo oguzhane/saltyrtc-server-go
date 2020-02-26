@@ -5,10 +5,10 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
 
+	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
 	"github.com/gammazero/workerpool"
 	ws "github.com/gobwas/ws"
@@ -38,8 +38,8 @@ func NewServer(permanentBox nacl.BoxKeyPair) *Server {
 	}
 	return &Server{
 		paths:          NewPaths(),
-		subprotocols:   []string{base.SubprotocolSaltyRTCv1},
-		subprotocol:    base.SubprotocolSaltyRTCv1,
+		subprotocols:   []string{prot.SubprotocolSaltyRTCv1},
+		subprotocol:    prot.SubprotocolSaltyRTCv1,
 		permanentBoxes: permanentBoxes,
 	}
 }

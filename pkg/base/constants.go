@@ -28,18 +28,3 @@ const (
 	KeepAliveIntervalDefault uint32 = 3600
 	KeepAliveTimeout         uint32 = 30
 )
-
-const (
-	DataLengthMin         = 25
-	NonceLength           = 24
-	CookieLength          = 16
-	SourceLength          = 1
-	SourceUpperBound      = CookieLength + SourceLength
-	DestinationLength     = 1
-	DestinationUpperBound = SourceUpperBound + DestinationLength
-	CsnUpperBound         = NonceLength
-)
-
-const (
-	SubprotocolSaltyRTCv1 = "v1.saltyrtc.org"
-)
