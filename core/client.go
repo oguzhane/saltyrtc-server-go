@@ -484,12 +484,12 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 	// Validate destination
 	isToServer := destType == prot.Server
 	if typeVal, typeHasVal := c.GetType(); !isToServer && !(c.Authenticated && typeHasVal && typeVal != destType) {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", f.Header.Dest), prot.ErrNotAllowedMessage)
+		return nil, prot.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", f.Header.Dest), prot.ErrNotAllowedMessage)
 	}
 
 	// Validate source
 	if c.Id != f.Header.Src {
-		return nil, base.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
+		return nil, prot.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
 	}
 
 	if destType != prot.Server {
@@ -509,13 +509,13 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 	csnIn := c.CombinedSequenceNumberIn
 	if csnIn != nil {
 		if csnIn.HasErrOverflowSentinel() {
-			return nil, base.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
+			return nil, prot.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
 		}
 		if !csnIn.EqualsTo(csn) {
-			return nil, base.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
+			return nil, prot.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
 		}
 	} else if csn.GetOverflowNumber() != 0 {
-		return nil, base.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
+		return nil, prot.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
 	}
 
 	nonce, _ := prot.ExtractNonce(data)

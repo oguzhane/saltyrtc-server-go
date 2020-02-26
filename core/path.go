@@ -2,7 +2,6 @@ package core
 
 import (
 	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	hm "github.com/cornelk/hashmap"
 )
 
@@ -54,7 +53,7 @@ func (p *Path) AddResponder(c *Client) (prot.AddressType, error) {
 			return responderID, nil
 		}
 	}
-	return prot.Server, base.NewSlotsFullError("No free slot on path")
+	return prot.Server, prot.NewSlotsFullError("No free slot on path")
 }
 
 // Del ..

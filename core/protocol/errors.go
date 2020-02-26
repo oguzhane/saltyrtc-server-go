@@ -1,4 +1,4 @@
-package base
+package protocol
 
 type SlotsFullError struct {
 	msg string
@@ -11,34 +11,6 @@ func NewSlotsFullError(message string) *SlotsFullError {
 }
 
 func (e *SlotsFullError) Error() string {
-	return e.msg
-}
-
-type ValueError struct {
-	msg string
-}
-
-func NewValueError(message string) *ValueError {
-	return &ValueError{
-		msg: message,
-	}
-}
-
-func (e *ValueError) Error() string {
-	return e.msg
-}
-
-type PathError struct {
-	msg string
-}
-
-func NewPathError(message string) *PathError {
-	return &PathError{
-		msg: message,
-	}
-}
-
-func (e *PathError) Error() string {
 	return e.msg
 }
 
