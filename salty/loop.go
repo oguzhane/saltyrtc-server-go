@@ -1,4 +1,4 @@
-package core
+package salty
 
 import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"

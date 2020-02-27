@@ -1,7 +1,7 @@
-package core
+package salty
 
 import (
-	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
+	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
 	hm "github.com/cornelk/hashmap"
 )
 

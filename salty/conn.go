@@ -1,4 +1,4 @@
-package core
+package salty
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"syscall"
 
-	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
+	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
 
 	ws "github.com/gobwas/ws"
 )

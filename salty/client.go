@@ -1,4 +1,4 @@
-package core
+package salty
 
 import (
 	"bytes"
@@ -8,9 +8,9 @@ import (
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
 
-	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/randutil"
+	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
 )
 
 // STATES

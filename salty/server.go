@@ -1,4 +1,4 @@
-package core
+package salty
 
 import (
 	"net"
@@ -8,8 +8,8 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
 
-	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
+	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
 	"github.com/gammazero/workerpool"
 	ws "github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"

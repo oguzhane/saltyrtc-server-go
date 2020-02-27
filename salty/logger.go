@@ -1,4 +1,4 @@
-package core
+package salty
 
 import (
 	"go.uber.org/zap"

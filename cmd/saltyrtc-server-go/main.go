@@ -6,12 +6,12 @@ import (
 	"log"
 	"os"
 
-	"github.com/OguzhanE/saltyrtc-server-go/core"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
+	salty "github.com/OguzhanE/saltyrtc-server-go/salty"
 )
 
-var server *core.Server
+var server *salty.Server
 
 func main() {
 
@@ -43,14 +43,14 @@ func main() {
 		return
 	}
 
-	core.InitLogger(flags.Verbosity)
+	salty.InitLogger(flags.Verbosity)
 
 	addr := fmt.Sprintf("%s:%d", flags.Addr, flags.Port)
 
 	defaultBox := nacl.NewBoxKeyPair(*pkBytes, *skBytes)
-	core.Sugar.Info("Starting server with the public permanent key: ", flags.Pk)
+	salty.Sugar.Info("Starting server with the public permanent key: ", flags.Pk)
 
-	server = core.NewServer(*defaultBox)
+	server = salty.NewServer(*defaultBox)
 	server.Start(addr)
 	quit := make(chan interface{})
 	select {
