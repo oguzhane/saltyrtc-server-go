@@ -1,6 +1,6 @@
 
 # SaltyRTC Signalling Server 
-SaltyRTC signalling server implementation in Go aims to handle high load of websocket connections in such a high performance manner using non-blocking I/O and zero-copy allocation.
+[SaltyRTC signalling server](https://github.com/saltyrtc/saltyrtc-meta/blob/master/Protocol.md) implementation in Go aims to handle high load of websocket connections in such a high performance manner using non-blocking I/O and zero-copy allocation.
 
 The project is currently in an early stage of development. Testing and review is welcome!
 
