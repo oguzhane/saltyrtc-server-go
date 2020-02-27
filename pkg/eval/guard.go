@@ -1,32 +1,32 @@
 package base
 
-type EvalWithGuard struct {
+type Guard struct {
 	defaultGuard func() bool
-	firstFn      *EvalWithGuardFuncNode
-	lastFn       *EvalWithGuardFuncNode
+	firstFn      *GuardFuncNode
+	lastFn       *GuardFuncNode
 }
 
-func NewEvalWithGuard(defaultGuard func() bool) *EvalWithGuard {
-	return &EvalWithGuard{
+func NewGuard(defaultGuard func() bool) *Guard {
+	return &Guard{
 		defaultGuard: defaultGuard,
 	}
 }
 
-func (c *EvalWithGuard) Push(fn func(prevGuard *func() bool) func() bool) {
+func (c *Guard) Push(fn func(prevGuard *func() bool) func() bool) {
 	if c.lastFn != nil {
-		c.lastFn.next = &EvalWithGuardFuncNode{
+		c.lastFn.next = &GuardFuncNode{
 			fn: fn,
 		}
 		c.lastFn = c.lastFn.next
 	} else {
-		c.firstFn = &EvalWithGuardFuncNode{
+		c.firstFn = &GuardFuncNode{
 			fn: fn,
 		}
 		c.lastFn = c.firstFn
 	}
 }
 
-func (c *EvalWithGuard) Eval() {
+func (c *Guard) Eval() {
 	if !c.defaultGuard() || c.firstFn == nil {
 		return
 	}
@@ -41,7 +41,7 @@ func (c *EvalWithGuard) Eval() {
 	}
 }
 
-type EvalWithGuardFuncNode struct {
+type GuardFuncNode struct {
 	fn   func(prevGuard *func() bool) func() bool
-	next *EvalWithGuardFuncNode
+	next *GuardFuncNode
 }

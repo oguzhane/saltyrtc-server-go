@@ -8,6 +8,13 @@ import (
 )
 
 const (
+	KeyBitSize      = 256
+	KeyBytesSize    = 32
+	KeyStringLength = 64
+	PathLength      = KeyStringLength
+)
+
+const (
 	DataLengthMin         = 25
 	NonceLength           = 24
 	CookieLength          = 16

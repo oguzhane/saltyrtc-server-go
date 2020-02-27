@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
@@ -119,18 +118,18 @@ type ClientAuthMessage struct {
 	ServerCookie []byte
 	Subprotocols []string
 	PingInterval uint32
-	ServerKey    [base.KeyBytesSize]byte
+	ServerKey    [KeyBytesSize]byte
 
 	EncodingOpts struct {
-		ClientKey       [base.KeyBytesSize]byte
-		ServerSessionSk [base.KeyBytesSize]byte
+		ClientKey       [KeyBytesSize]byte
+		ServerSessionSk [KeyBytesSize]byte
 		Nonce           []byte
 	}
 }
 
 // NewClientAuthMessage ..
 func NewClientAuthMessage(src AddressType, dest AddressType, serverCookie []byte,
-	subprotocols []string, pingInterval uint32, serverKey [base.KeyBytesSize]byte) *ClientAuthMessage {
+	subprotocols []string, pingInterval uint32, serverKey [KeyBytesSize]byte) *ClientAuthMessage {
 	msg := &ClientAuthMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
@@ -296,12 +295,12 @@ func (m ServerAuthMessage) MarshalPayload() ([]byte, error) {
 type NewInitiatorMessage struct {
 	BaseMessage
 
-	clientKey       [base.KeyBytesSize]byte
-	serverSessionSk [base.KeyBytesSize]byte
+	clientKey       [KeyBytesSize]byte
+	serverSessionSk [KeyBytesSize]byte
 
 	EncodingOpts struct {
-		ClientKey       [base.KeyBytesSize]byte
-		ServerSessionSk [base.KeyBytesSize]byte
+		ClientKey       [KeyBytesSize]byte
+		ServerSessionSk [KeyBytesSize]byte
 		Nonce           []byte
 	}
 }
@@ -343,8 +342,8 @@ type NewResponderMessage struct {
 	responderId AddressType
 
 	EncodingOpts struct {
-		ClientKey       [base.KeyBytesSize]byte
-		ServerSessionSk [base.KeyBytesSize]byte
+		ClientKey       [KeyBytesSize]byte
+		ServerSessionSk [KeyBytesSize]byte
 		Nonce           []byte
 	}
 }
@@ -389,15 +388,15 @@ type DropResponderMessage struct {
 	Reason      int
 
 	EncodingOpts struct {
-		ClientKey       [base.KeyBytesSize]byte
-		ServerSessionSk [base.KeyBytesSize]byte
+		ClientKey       [KeyBytesSize]byte
+		ServerSessionSk [KeyBytesSize]byte
 		Nonce           []byte
 	}
 }
 
 // NewDropResponderMessage ..
 func NewDropResponderMessage(src AddressType, dest AddressType, responderId AddressType) *DropResponderMessage {
-	return NewDropResponderMessageWithReason(src, dest, responderId, base.CloseCodeDropByInitiator)
+	return NewDropResponderMessageWithReason(src, dest, responderId, CloseCodeDropByInitiator)
 }
 
 // NewDropResponderMessageWithReason ..
@@ -441,8 +440,8 @@ type DisconnectedMessage struct {
 	clientId []byte
 
 	EncodingOpts struct {
-		ClientKey       [base.KeyBytesSize]byte
-		ServerSessionSk [base.KeyBytesSize]byte
+		ClientKey       [KeyBytesSize]byte
+		ServerSessionSk [KeyBytesSize]byte
 		Nonce           []byte
 	}
 }
@@ -486,8 +485,8 @@ func (m *DisconnectedMessage) MarshalPayload() ([]byte, error) {
 type SendErrorMessage struct {
 	BaseMessage
 	messageId       []byte
-	clientKey       [base.KeyBytesSize]byte
-	serverSessionSk [base.KeyBytesSize]byte
+	clientKey       [KeyBytesSize]byte
+	serverSessionSk [KeyBytesSize]byte
 }
 
 // NewSendErrorMessage ..

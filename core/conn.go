@@ -6,45 +6,46 @@ import (
 	"reflect"
 	"syscall"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
+
 	ws "github.com/gobwas/ws"
 )
 
 // CloseFrameNormalClosure //
-var CloseFrameNormalClosure = compileCloseFrame(base.CloseCodeNormalClosure, "")
+var CloseFrameNormalClosure = compileCloseFrame(prot.CloseCodeNormalClosure, "")
 
 // CloseFrameGoingAway //
-var CloseFrameGoingAway = compileCloseFrame(base.CloseCodeGoingAway, "")
+var CloseFrameGoingAway = compileCloseFrame(prot.CloseCodeGoingAway, "")
 
 // CloseFrameSubprotocolError //
-var CloseFrameSubprotocolError = compileCloseFrame(base.CloseCodeSubprotocolError, "")
+var CloseFrameSubprotocolError = compileCloseFrame(prot.CloseCodeSubprotocolError, "")
 
 // CloseFramePathFullError //
-var CloseFramePathFullError = compileCloseFrame(base.CloseCodePathFullError, "")
+var CloseFramePathFullError = compileCloseFrame(prot.CloseCodePathFullError, "")
 
 // CloseFrameProtocolError //
-var CloseFrameProtocolError = compileCloseFrame(base.CloseCodeProtocolError, "")
+var CloseFrameProtocolError = compileCloseFrame(prot.CloseCodeProtocolError, "")
 
 // CloseFrameInternalError //
-var CloseFrameInternalError = compileCloseFrame(base.CloseCodeInternalError, "")
+var CloseFrameInternalError = compileCloseFrame(prot.CloseCodeInternalError, "")
 
 // CloseFrameHandover //
-var CloseFrameHandover = compileCloseFrame(base.CloseCodeHandover, "")
+var CloseFrameHandover = compileCloseFrame(prot.CloseCodeHandover, "")
 
 // CloseFrameDropByInitiator //
-var CloseFrameDropByInitiator = compileCloseFrame(base.CloseCodeDropByInitiator, "")
+var CloseFrameDropByInitiator = compileCloseFrame(prot.CloseCodeDropByInitiator, "")
 
 // CloseFrameInitiatorCouldNotDecrypt //
-var CloseFrameInitiatorCouldNotDecrypt = compileCloseFrame(base.CloseCodeInitiatorCouldNotDecrypt, "")
+var CloseFrameInitiatorCouldNotDecrypt = compileCloseFrame(prot.CloseCodeInitiatorCouldNotDecrypt, "")
 
 // CloseFrameNoSharedTasks //
-var CloseFrameNoSharedTasks = compileCloseFrame(base.CloseCodeNoSharedTasks, "")
+var CloseFrameNoSharedTasks = compileCloseFrame(prot.CloseCodeNoSharedTasks, "")
 
 // CloseFrameInvalidKey //
-var CloseFrameInvalidKey = compileCloseFrame(base.CloseCodeInvalidKey, "")
+var CloseFrameInvalidKey = compileCloseFrame(prot.CloseCodeInvalidKey, "")
 
 // CloseFrameTimeout //
-var CloseFrameTimeout = compileCloseFrame(base.CloseCodeTimeout, "")
+var CloseFrameTimeout = compileCloseFrame(prot.CloseCodeTimeout, "")
 
 // Conn ..
 type Conn struct {
@@ -97,40 +98,40 @@ func socketFD(conn net.Conn) int {
 
 func getCloseFrameByCode(code int, defaultFrame []byte) (closeFrame []byte) {
 	switch code {
-	case base.CloseCodeNormalClosure:
+	case prot.CloseCodeNormalClosure:
 		closeFrame = CloseFrameNormalClosure
 		break
-	case base.CloseCodeGoingAway:
+	case prot.CloseCodeGoingAway:
 		closeFrame = CloseFrameGoingAway
 		break
-	case base.CloseCodeSubprotocolError:
+	case prot.CloseCodeSubprotocolError:
 		closeFrame = CloseFrameSubprotocolError
 		break
-	case base.CloseCodePathFullError:
+	case prot.CloseCodePathFullError:
 		closeFrame = CloseFramePathFullError
 		break
-	case base.CloseCodeProtocolError:
+	case prot.CloseCodeProtocolError:
 		closeFrame = CloseFrameProtocolError
 		break
-	case base.CloseCodeInternalError:
+	case prot.CloseCodeInternalError:
 		closeFrame = CloseFrameInternalError
 		break
-	case base.CloseCodeHandover:
+	case prot.CloseCodeHandover:
 		closeFrame = CloseFrameHandover
 		break
-	case base.CloseCodeDropByInitiator:
+	case prot.CloseCodeDropByInitiator:
 		closeFrame = CloseFrameDropByInitiator
 		break
-	case base.CloseCodeInitiatorCouldNotDecrypt:
+	case prot.CloseCodeInitiatorCouldNotDecrypt:
 		closeFrame = CloseFrameSubprotocolError
 		break
-	case base.CloseCodeNoSharedTasks:
+	case prot.CloseCodeNoSharedTasks:
 		closeFrame = CloseFrameNoSharedTasks
 		break
-	case base.CloseCodeInvalidKey:
+	case prot.CloseCodeInvalidKey:
 		closeFrame = CloseFrameInvalidKey
 		break
-	case base.CloseCodeTimeout:
+	case prot.CloseCodeTimeout:
 		closeFrame = CloseFrameTimeout
 		break
 	default:

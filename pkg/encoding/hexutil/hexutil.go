@@ -4,15 +4,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+)
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
+const (
+	keyBitSize      = 256
+	keyBytesSize    = 32
+	keyStringLength = 64
+	pathLength      = keyStringLength
 )
 
 var (
 	// ErrInvalidKeyLength ..
-	ErrInvalidKeyLength = fmt.Errorf("invalid key length: key length must be:{%d}", base.KeyStringLength)
+	ErrInvalidKeyLength = fmt.Errorf("invalid key length: key length must be:{%d}", keyStringLength)
 	// ErrInvalidPathLength ..
-	ErrInvalidPathLength = fmt.Errorf("invalid path length: path length must be :{%d}", base.PathLength)
+	ErrInvalidPathLength = fmt.Errorf("invalid path length: path length must be :{%d}", pathLength)
 	// ErrInvalidPathChar ..
 	ErrInvalidPathChar = fmt.Errorf("invalid path character: path characters should be valid hex char(0-f)")
 	// ErrInvalidHexChar ..
@@ -24,7 +29,7 @@ var (
 // IsValidHexKeyString validates key
 func IsValidHexKeyString(key string) error {
 
-	if len(key) != base.KeyStringLength {
+	if len(key) != keyStringLength {
 		return ErrInvalidKeyLength
 	}
 	return IsValidHexString(key)
@@ -32,7 +37,7 @@ func IsValidHexKeyString(key string) error {
 
 // IsValidHexPathString validates pathStr
 func IsValidHexPathString(pathStr string) error {
-	if len(pathStr) != base.PathLength {
+	if len(pathStr) != pathLength {
 		return ErrInvalidPathLength
 	}
 	err := IsValidHexString(pathStr)

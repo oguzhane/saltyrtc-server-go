@@ -4,41 +4,41 @@ import "errors"
 
 var ErrNoEvalFunc = errors.New("NoEvalFunc")
 
-type CheckUp struct {
+type Check struct {
 	Err     error
-	firstFn *checkUpFuncNode
-	lastFn  *checkUpFuncNode
+	firstFn *checkFuncNode
+	lastFn  *checkFuncNode
 }
 
-func NewCheckUpWithErr(err error) *CheckUp {
-	return &CheckUp{
+func NewCheckWithErr(err error) *Check {
+	return &Check{
 		Err: err,
 	}
 }
 
-func NewCheckUp() *CheckUp {
-	return &CheckUp{}
+func NewCheck() *Check {
+	return &Check{}
 }
 
-func (c *CheckUp) SetErr(err error) {
+func (c *Check) SetErr(err error) {
 	c.Err = err
 }
 
-func (c *CheckUp) Push(fn func() error) {
+func (c *Check) Push(fn func() error) {
 	if c.lastFn != nil {
-		c.lastFn.next = &checkUpFuncNode{
+		c.lastFn.next = &checkFuncNode{
 			fn: fn,
 		}
 		c.lastFn = c.lastFn.next
 	} else {
-		c.firstFn = &checkUpFuncNode{
+		c.firstFn = &checkFuncNode{
 			fn: fn,
 		}
 		c.lastFn = c.firstFn
 	}
 }
 
-func (c *CheckUp) Eval() error {
+func (c *Check) Eval() error {
 	if c.Err != nil {
 		return c.Err
 	}
@@ -56,7 +56,7 @@ func (c *CheckUp) Eval() error {
 	return nil
 }
 
-type checkUpFuncNode struct {
+type checkFuncNode struct {
 	fn   func() error
-	next *checkUpFuncNode
+	next *checkFuncNode
 }

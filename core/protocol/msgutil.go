@@ -3,7 +3,6 @@ package protocol
 import (
 	"errors"
 
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
@@ -73,10 +72,10 @@ func IsValidYourKey(yourKey interface{}) bool {
 }
 
 // ParseYourKey ..
-func ParseYourKey(yourKey interface{}) ([base.KeyBytesSize]byte, error) {
+func ParseYourKey(yourKey interface{}) ([KeyBytesSize]byte, error) {
 	yourKeyBytes, err := nacl.ConvertBoxPkToBytes(yourKey)
 	if err != nil {
-		var tmpArr [base.KeyBytesSize]byte
+		var tmpArr [KeyBytesSize]byte
 		return tmpArr, err
 	}
 	return nacl.CreateBoxPkFromBytes(yourKeyBytes)
@@ -123,9 +122,9 @@ func IsValidReasonCode(reason interface{}) bool {
 	v, ok := reason.(int)
 
 	if ok &&
-		v == base.CloseCodeGoingAway ||
-		v == base.CloseCodeSubprotocolError ||
-		(v >= base.CloseCodePathFullError && v <= base.CloseCodeInvalidKey) {
+		v == CloseCodeGoingAway ||
+		v == CloseCodeSubprotocolError ||
+		(v >= CloseCodePathFullError && v <= CloseCodeInvalidKey) {
 		return true
 	}
 	return false

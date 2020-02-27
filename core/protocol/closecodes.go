@@ -1,11 +1,4 @@
-package base
-
-const (
-	KeyBitSize      = 256
-	KeyBytesSize    = 32
-	KeyStringLength = 64
-	PathLength      = KeyStringLength
-)
+package protocol
 
 const (
 	CloseCodeNormalClosure            = 1000
@@ -20,11 +13,4 @@ const (
 	CloseCodeNoSharedTasks            = 3006
 	CloseCodeInvalidKey               = 3007
 	CloseCodeTimeout                  = 3008
-)
-
-const (
-	RelayTimeout             uint32 = 30
-	KeepAliveIntervalMin     uint32 = 1
-	KeepAliveIntervalDefault uint32 = 3600
-	KeepAliveTimeout         uint32 = 30
 )

@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/arrayutil"
-	"github.com/OguzhanE/saltyrtc-server-go/pkg/base"
 
 	prot "github.com/OguzhanE/saltyrtc-server-go/core/protocol"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
@@ -47,7 +46,7 @@ type Client struct {
 }
 
 // NewClient ..
-func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sessionBox *nacl.BoxKeyPair) (*Client, error) {
+func NewClient(conn *Conn, clientKey [prot.KeyBytesSize]byte, permanentBox, sessionBox *nacl.BoxKeyPair) (*Client, error) {
 	cookieOut, err := randutil.RandBytes(prot.CookieLength)
 	if err != nil {
 		return nil, err
@@ -71,24 +70,6 @@ func NewClient(conn *Conn, clientKey [base.KeyBytesSize]byte, permanentBox, sess
 // GetCookieIn ..
 func (c *Client) GetCookieIn() []byte {
 	return c.cookieIn
-}
-
-// CheckAndSetCookieIn ..
-func (c *Client) CheckAndSetCookieIn(cookieIn []byte) *base.CheckUp {
-	chkUp := base.NewCheckUp()
-	if c.cookieIn == nil {
-		if bytes.Equal(cookieIn, c.CookieOut) {
-			chkUp.SetErr(errors.New("Server and client cookies cannot be the same"))
-			return chkUp
-		}
-		chkUp.Push(func() error { c.cookieIn = cookieIn; return nil })
-		return chkUp
-	}
-	if !bytes.Equal(c.cookieIn, cookieIn) {
-		chkUp.SetErr(errors.New("Client cookie is not changeable"))
-		return chkUp
-	}
-	return chkUp
 }
 
 // GetType ..
@@ -334,7 +315,7 @@ func (c *Client) handleClientHello(msg *prot.ClientHelloMessage) (err error) {
 		err = errors.New("invalid client public key length")
 		return
 	}
-	copy(c.ClientKey[:], msg.ClientPublicKey[0:base.KeyBytesSize])
+	copy(c.ClientKey[:], msg.ClientPublicKey[0:prot.KeyBytesSize])
 	c.SetType(prot.Responder)
 	c.State = ClientHello
 	return
