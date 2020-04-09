@@ -16,9 +16,9 @@ type listener struct {
 	addr    string
 }
 
-func (ln *listener) system() error {
+func (ln *listener) system(nln net.Listener) error {
 	var err error
-	switch netln := ln.ln.(type) {
+	switch netln := nln.(type) {
 	case *net.TCPListener:
 		ln.f, err = netln.File()
 	case *net.UnixListener:

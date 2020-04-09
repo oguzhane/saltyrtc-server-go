@@ -1,10 +1,12 @@
 package salty
 
 import (
+	"crypto/tls"
 	"errors"
 	"net"
 	"reflect"
 	"syscall"
+	"unsafe"
 
 	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
 
@@ -83,6 +85,12 @@ func (c *Conn) Read(p []byte) (int, error) {
 }
 
 func socketFD(conn net.Conn) int {
+	tlsConn, ok := conn.(*tls.Conn)
+	if ok {
+		conn1 := reflect.ValueOf(tlsConn).Elem().FieldByName("conn")
+		conn1 = reflect.NewAt(conn1.Type(), unsafe.Pointer(conn1.UnsafeAddr())).Elem()
+		conn = conn1.Interface().(net.Conn)
+	}
 	//tls := reflect.TypeOf(conn.UnderlyingConn()) == reflect.TypeOf(&tls.Conn{})
 	// Extract the file descriptor associated with the connection
 	//connVal := reflect.Indirect(reflect.ValueOf(conn)).FieldByName("conn").Elem()

@@ -1,6 +1,7 @@
 package salty
 
 import (
+	"crypto/tls"
 	"net"
 	"sync/atomic"
 	"syscall"
@@ -46,6 +47,8 @@ func NewServer(permanentBox nacl.BoxKeyPair) *Server {
 
 // Start runs the server
 func (s *Server) Start(addr string) error {
+	cer, _ := tls.LoadX509KeyPair("server.crt", "server.key")
+	config := &tls.Config{Certificates: []tls.Certificate{cer}}
 
 	s.wp = workerpool.New(MaxWorkers)
 	var err error
@@ -55,14 +58,21 @@ func (s *Server) Start(addr string) error {
 		addr:    addr,
 	}
 
-	ln.ln, err = net.Listen(ln.network, ln.addr)
+	tcpLn, err := net.Listen(ln.network, ln.addr)
 	if err != nil {
 		Sugar.Fatal(err)
 	}
+
+	ln.ln = tls.NewListener(tcpLn, config)
+
+	// if err != nil {
+	// 	Sugar.Fatal(err)
+	// }
+
 	ln.lnaddr = ln.ln.Addr()
 	Sugar.Info("Connection listening on ", ln.lnaddr.String())
 
-	ln.system()
+	ln.system(tcpLn)
 
 	poll := evpoll.OpenPoll()
 	loop := &loop{
