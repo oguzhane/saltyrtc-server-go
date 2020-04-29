@@ -84,7 +84,7 @@ func (c *Conn) Read(p []byte) (int, error) {
 	return syscall.Read(c.fd, p)
 }
 
-func socketFD(conn net.Conn) int {
+func socketFD(conn net.Conn) (int, net.Conn) {
 	tlsConn, ok := conn.(*tls.Conn)
 	if ok {
 		conn1 := reflect.ValueOf(tlsConn).Elem().FieldByName("conn")
@@ -101,7 +101,7 @@ func socketFD(conn net.Conn) int {
 	fdVal := tcpConn.FieldByName("fd")
 	pfdVal := reflect.Indirect(fdVal).FieldByName("pfd")
 
-	return int(pfdVal.FieldByName("Sysfd").Int())
+	return int(pfdVal.FieldByName("Sysfd").Int()), conn
 }
 
 func getCloseFrameByCode(code int, defaultFrame []byte) (closeFrame []byte) {

@@ -2,6 +2,8 @@ package salty
 
 import (
 	"crypto/tls"
+	"errors"
+	"io"
 	"net"
 	"sync/atomic"
 	"syscall"
@@ -45,14 +47,20 @@ func NewServer(permanentBox nacl.BoxKeyPair) *Server {
 	}
 }
 
+var config *tls.Config
+
 // Start runs the server
 func (s *Server) Start(addr string) error {
-	cer, _ := tls.LoadX509KeyPair("server.crt", "server.key")
-	config := &tls.Config{Certificates: []tls.Certificate{cer}}
+	var err error
+	cer, err := tls.LoadX509KeyPair("/home/ogz/localhost.pem", "/home/ogz/localhost-key.pem")
+	if err != nil {
+		panic(err)
+	}
+	config = &tls.Config{Certificates: []tls.Certificate{cer}}
 
 	s.wp = workerpool.New(MaxWorkers)
-	var err error
 
+	// httpServ := new(http.Server)
 	ln := &listener{
 		network: "tcp",
 		addr:    addr,
@@ -232,10 +240,36 @@ func loopNote(l *loop, note interface{}) error {
 	return err
 }
 
+// tlsRecordHeaderLooksLikeHTTP reports whether a TLS record header
+// looks like it might've been a misdirected plaintext HTTP request.
+func tlsRecordHeaderLooksLikeHTTP(hdr [5]byte) bool {
+	switch string(hdr[:]) {
+	case "GET /", "HEAD ", "POST ", "PUT /", "OPTIO":
+		return true
+	}
+	return false
+}
+
 func loopAccept(fd int, l *loop, ln *listener) error {
 	if fd == ln.fd {
 		conn, err := ln.ln.Accept()
-		nfd := socketFD(conn)
+
+		tlsConn, _ := conn.(*tls.Conn)
+		if err := tlsConn.Handshake(); err != nil {
+			Sugar.Error(err)
+			// If the handshake failed due to the client not speaking
+			// TLS, assume they're speaking plaintext HTTP and write a
+			// 400 response on the TLS conn's underlying net.Conn.
+			if re, ok := err.(tls.RecordHeaderError); ok && re.Conn != nil && tlsRecordHeaderLooksLikeHTTP(re.RecordHeader) {
+				io.WriteString(re.Conn, "HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n")
+				re.Conn.Close()
+				return errors.New("tls handshake failed")
+			}
+			// c.server.logf("http: TLS handshake error from %s: %v", c.rwc.RemoteAddr(), err)
+			return errors.New("tls handshake failed")
+		}
+
+		nfd, _ := socketFD(conn)
 		if err != nil {
 			if err == syscall.EAGAIN {
 				return nil

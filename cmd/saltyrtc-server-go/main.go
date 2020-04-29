@@ -24,10 +24,10 @@ func main() {
 	}
 
 	flag.StringVar(&flags.Addr, "a", "", "Address")
-	flag.UintVar(&flags.Port, "p", 3838, "Port")
-	flag.IntVar(&flags.Verbosity, "v", 10, "Logging Verbosity")
-	flag.StringVar(&flags.Pk, "pk", "", "Public key of server permanent key in hex format")
-	flag.StringVar(&flags.Sk, "sk", "", "Secret key of server permanent key in hex format")
+	flag.UintVar(&flags.Port, "p", 9002, "Port")
+	flag.IntVar(&flags.Verbosity, "v", 0, "Logging Verbosity")
+	flag.StringVar(&flags.Pk, "pk", "3b9f4eabcb7081fefc870f395048fd7f131c61e2b202bd592bb2f120eb153913", "Public key of server permanent key in hex format")
+	flag.StringVar(&flags.Sk, "sk", "bf04cf3abfb416468f82a8f97489720165e61932bb88e7bbfb543ba8d87f0696", "Secret key of server permanent key in hex format")
 	flag.Parse()
 
 	if flags.Sk == "" || flags.Pk == "" {
