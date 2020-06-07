@@ -56,7 +56,7 @@ func (p *Poll) Trigger(note interface{}) error {
 func (p *Poll) Wait(iter func(fd int, note interface{}) error) error {
 	events := make([]syscall.EpollEvent, 64)
 	for {
-		n, err := syscall.EpollWait(p.fd, events, -1)
+		n, err := syscall.EpollWait(p.fd, events, 100)
 		if err != nil && err != syscall.EINTR {
 			return err
 		}
@@ -93,6 +93,17 @@ func (p *Poll) ModReadOnce(fd int) {
 	if err := syscall.EpollCtl(p.fd, syscall.EPOLL_CTL_MOD, fd,
 		&syscall.EpollEvent{Fd: int32(fd),
 			Events: unix.EPOLLONESHOT | syscall.EPOLLIN,
+		},
+	); err != nil {
+		panic(err)
+	}
+}
+
+// ModReadWriteOnce ...
+func (p *Poll) ModReadWriteOnce(fd int) {
+	if err := syscall.EpollCtl(p.fd, syscall.EPOLL_CTL_MOD, fd,
+		&syscall.EpollEvent{Fd: int32(fd),
+			Events: unix.EPOLLONESHOT | syscall.EPOLLIN | syscall.EPOLLOUT,
 		},
 	); err != nil {
 		panic(err)

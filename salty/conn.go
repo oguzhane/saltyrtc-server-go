@@ -61,6 +61,7 @@ type Conn struct {
 	upgraded   bool // upgraded to ws protocol
 	client     *Client
 	closed     bool
+	nopConn    *nopConn
 }
 
 // Close ..
@@ -81,7 +82,11 @@ func (c *Conn) Write(p []byte) (int, error) {
 
 // Read ..
 func (c *Conn) Read(p []byte) (int, error) {
-	return syscall.Read(c.fd, p)
+	// tlsConn, _ := c.netConn.(*tls.Conn)
+	// tls.Server()
+	// tlsConn.SetReadDeadline(time.Now().Add(1000 * time.Microsecond))
+	return c.netConn.Read(p)
+	// return syscall.Read(c.fd, p)
 }
 
 func socketFD(conn net.Conn) (int, net.Conn) {

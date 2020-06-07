@@ -2,14 +2,16 @@ package salty
 
 import (
 	"crypto/tls"
-	"errors"
-	"io"
+	"fmt"
 	"net"
+	"runtime"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/encoding/hexutil"
+	"github.com/pkg/errors"
 
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/evpoll"
 	prot "github.com/OguzhanE/saltyrtc-server-go/salty/protocol"
@@ -24,6 +26,8 @@ const (
 	// MaxWorkers ..
 	MaxWorkers = 8
 )
+
+var DoPanic bool
 
 // Server handles clients
 type Server struct {
@@ -60,7 +64,6 @@ func (s *Server) Start(addr string) error {
 
 	s.wp = workerpool.New(MaxWorkers)
 
-	// httpServ := new(http.Server)
 	ln := &listener{
 		network: "tcp",
 		addr:    addr,
@@ -71,7 +74,8 @@ func (s *Server) Start(addr string) error {
 		Sugar.Fatal(err)
 	}
 
-	ln.ln = tls.NewListener(tcpLn, config)
+	ln.ln = tcpLn
+	// ln.ln = tls.NewListener(tcpLn, config)
 
 	// if err != nil {
 	// 	Sugar.Fatal(err)
@@ -90,6 +94,14 @@ func (s *Server) Start(addr string) error {
 	poll.AddReadOnce(ln.fd)
 
 	Sugar.Debug("Waiting for an I/O event on an connection file descriptor")
+
+	go func() {
+		select {
+		case <-time.After(10 * time.Second):
+			fmt.Println("timed out")
+			DoPanic = true
+		}
+	}()
 	return poll.Wait(func(fd int, note interface{}) error {
 		Sugar.Debug("Triggered for an event on fd: ", fd)
 		if fd == ln.fd {
@@ -135,10 +147,14 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 		data, op, err := wsutil.ReadClientData(c)
 
 		Sugar.Debug("Client data is read. OpCode: ", op)
-
+		if GotEagain {
+			Sugar.Debug("Reset GotEagain")
+			GotEagain = false
+			return
+		}
 		if err != nil {
 
-			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN {
+			if _, ok := err.(ws.ProtocolError); ok || err == syscall.EAGAIN || err == myErrDefault {
 				Sugar.Debug(err)
 				// io.Copy(ioutil.Discard, c.netConn) // discard incoming data to be ready for the next
 				return
@@ -161,7 +177,7 @@ func (s *Server) handleReceive(l *loop, ln *listener, c *Conn) {
 
 func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error) {
 	l.poll.ModReadWrite(c.fd)
-	defer l.poll.ModRead(c.fd)
+	// defer l.poll.ModRead(c.fd)
 
 	initiatorKey := ""
 	upgrader := ws.Upgrader{
@@ -175,13 +191,20 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	_, err := upgrader.Upgrade(c.netConn)
 
 	if err != nil {
-		if err == syscall.EAGAIN {
+		Sugar.Error(err)
+		if err != nil || err == syscall.EAGAIN || err == NoBrutus || err == myErrDefault {
+			// Sugar.Debug("no brutis: ", c.fd)
+			// panic("heyy")
+			Sugar.Debug("Detached..")
+			l.poll.ModReadOnce(c.fd)
+			// l.poll.(c.fd)
 			return nil
 		}
 		Sugar.Error("Could not upgrade connection to websocket :", err)
 		return loopCloseConn(l, c, nil)
 	}
-
+	Sugar.Debug("Succesfull UPGRADE")
+	defer l.poll.ModRead(c.fd)
 	initiatorKeyBytes, err := hexutil.HexStringToBytes32(initiatorKey)
 	if err != nil {
 		Sugar.Warn("Closing due to invalid path key :", initiatorKey)
@@ -210,6 +233,7 @@ func (s *Server) handleNewConn(l *loop, ln *listener, c *Conn) (resultErr error)
 	c.client = client
 	c.upgraded = true
 	Sugar.Info("Connection established with the key :", initiatorKey)
+	// c.nopConn.useSyscall = true
 	return nil
 }
 
@@ -250,26 +274,124 @@ func tlsRecordHeaderLooksLikeHTTP(hdr [5]byte) bool {
 	return false
 }
 
+type nopConn struct {
+	net.Conn
+	rawConn    syscall.RawConn
+	tcpFd      int
+	useSyscall bool
+}
+
+var NoBrutus = errors.New("NoEagain")
+var counter int = 1
+var GotEagain bool = false
+
+func Stack() []byte {
+	buf := make([]byte, 1024)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			return buf[:n]
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+type MyErr struct {
+	// net.Error
+}
+
+func (e MyErr) Timeout() bool {
+	return true
+}
+func (e MyErr) Temporary() bool {
+	return true
+}
+func (MyErr) Error() string {
+	return fmt.Sprintf("MyErr: counter: %d", counter)
+}
+
+var myErrDefault = MyErr{}
+
+func readRawConn(c syscall.RawConn, b []byte) (int, error) {
+	Sugar.Debug("-->readRawConn")
+	var operr error
+	var n int
+	// var retNoBrut bool = false
+	err := c.Read(func(s uintptr) bool {
+		// c.Control()
+		n, operr = syscall.Read(int(s), b)
+		if operr == syscall.EAGAIN {
+			counter++
+
+			n, operr = 0, myErrDefault
+			Sugar.Debug("<------------------>")
+			// Sugar.Debug(string(Stack()))
+			// GotEagain = true
+			// if DoPanic {
+			// 	panic("heyy")
+			// }
+			// panic("hmm")
+			// runtime.KeepAlive()
+			// c.Control(func(fd uintptr) {
+			// 	// set the socket options
+			// 	if err := syscall.SetsockoptInt(int(s), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 256); err != nil {
+			// 		Sugar.Error(err)
+			// 		// log.Fatal(err)
+			// 	}
+			// 	// if err != nil {
+			// 	// 	log.Println("setsocketopt: ", err)
+			// 	// }
+			// })
+			// retNoBrut = true
+			Sugar.Debug("LOL")
+			// n = 0
+			return true
+		}
+		return true
+	})
+	// if retNoBrut {
+	// 	Sugar.Debug("LOL-2")
+	// 	return 0, NoBrutus
+	// }
+	if err != nil {
+		return n, err
+	}
+	if operr != nil {
+		return n, operr
+	}
+	return n, nil
+}
+
+func (c *nopConn) Read(p []byte) (n int, err error) {
+	return readRawConn(c.rawConn, p)
+	// if c.useSyscall {
+	// 	return syscall.Read(c.tcpFd, p)
+	// }
+	// return c.Conn.Read(p)
+}
+func (c *nopConn) Write(p []byte) (n int, err error)         { return c.Conn.Write(p) }
+func (c *nopConn) LocalAddr() net.Addr                       { return c.Conn.LocalAddr() }
+func (c *nopConn) RemoteAddr() net.Addr                      { return c.Conn.RemoteAddr() }
+func (c *nopConn) SetDeadline(deadline time.Time) error      { return c.Conn.SetDeadline(deadline) }
+func (c *nopConn) SetWriteDeadline(deadline time.Time) error { return c.Conn.SetWriteDeadline(deadline) }
+func (c *nopConn) SetReadDeadline(deadline time.Time) error  { return c.Conn.SetReadDeadline(deadline) }
+func (c *nopConn) Close() error                              { return c.Conn.Close() }
+
+// NopConn returns a net.Conn with a no-op LocalAddr, RemoteAddr,
+// SetDeadline, SetWriteDeadline, SetReadDeadline, and Close methods wrapping
+// the provided ReadWriter rw.
+func NopConn(nc net.Conn, rawConn syscall.RawConn, tcpFd int) net.Conn {
+	return &nopConn{
+		nc,
+		rawConn,
+		tcpFd,
+		false,
+	}
+}
+
 func loopAccept(fd int, l *loop, ln *listener) error {
 	if fd == ln.fd {
 		conn, err := ln.ln.Accept()
-
-		tlsConn, _ := conn.(*tls.Conn)
-		if err := tlsConn.Handshake(); err != nil {
-			Sugar.Error(err)
-			// If the handshake failed due to the client not speaking
-			// TLS, assume they're speaking plaintext HTTP and write a
-			// 400 response on the TLS conn's underlying net.Conn.
-			if re, ok := err.(tls.RecordHeaderError); ok && re.Conn != nil && tlsRecordHeaderLooksLikeHTTP(re.RecordHeader) {
-				io.WriteString(re.Conn, "HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n")
-				re.Conn.Close()
-				return errors.New("tls handshake failed")
-			}
-			// c.server.logf("http: TLS handshake error from %s: %v", c.rwc.RemoteAddr(), err)
-			return errors.New("tls handshake failed")
-		}
-
-		nfd, _ := socketFD(conn)
 		if err != nil {
 			if err == syscall.EAGAIN {
 				return nil
@@ -278,12 +400,39 @@ func loopAccept(fd int, l *loop, ln *listener) error {
 			return err
 		}
 
+		tcpConn := conn.(*net.TCPConn)
+		rawConn, _ := tcpConn.SyscallConn()
+		tcpFd, _ := socketFD(conn)
+		nopTCPConn := NopConn(conn, rawConn, tcpFd)
+
+		tlsConn := tls.Server(nopTCPConn, config)
+
+		// tlsConn, _ := conn.(*tls.Conn)
+		// tlsConn.Read()
+		// if err := tlsConn.Handshake(); err != nil {
+		// 	Sugar.Error(err)
+		// 	// If the handshake failed due to the client not speaking
+		// 	// TLS, assume they're speaking plaintext HTTP and write a
+		// 	// 400 response on the TLS conn's underlying net.Conn.
+		// 	if re, ok := err.(tls.RecordHeaderError); ok && re.Conn != nil && tlsRecordHeaderLooksLikeHTTP(re.RecordHeader) {
+		// 		io.WriteString(re.Conn, "HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n")
+		// 		re.Conn.Close()
+		// 		return errors.New("tls handshake failed")
+		// 	}
+		// 	// c.server.logf("http: TLS handshake error from %s: %v", c.rwc.RemoteAddr(), err)
+		// 	return errors.New("tls handshake failed")
+		// }
+
+		// nfd, _ := socketFD(tlsConn)
+
+		nfd := tcpFd
+
 		if err := syscall.SetNonblock(nfd, true); err != nil {
 			conn.Close()
 			return err
 		}
 
-		c := &Conn{netConn: conn, fd: nfd, loop: l}
+		c := &Conn{netConn: tlsConn, fd: nfd, loop: l, nopConn: nopTCPConn.(*nopConn)}
 		l.fdconns[c.fd] = c
 		l.poll.AddReadWrite(c.fd)
 		atomic.AddInt32(&l.count, 1)
@@ -292,6 +441,7 @@ func loopAccept(fd int, l *loop, ln *listener) error {
 }
 
 func loopOpened(l *loop, ln *listener, c *Conn) error {
+	Sugar.Debug("Loop opened..")
 	c.opened = true
 	c.remoteAddr = c.netConn.RemoteAddr()
 	l.poll.ModRead(c.fd)
