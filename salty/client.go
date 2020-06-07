@@ -122,19 +122,91 @@ func (c *Client) Received(b []byte) {
 	return
 }
 
-func (c *Client) getHeader(dest uint8) (h prot.Header, err error) {
-	csnOut, err := c.CombinedSequenceNumberOut.AsBytes()
+// Pack ..
+func (c *Client) Pack(h prot.Header, pm prot.PayloadMarshaler) ([]byte, error) {
+
+	payloadBts, _ := pm.MarshalPayload()
+	f := prot.Frame{
+		Header:  h,
+		Payload: payloadBts,
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, prot.HeaderSize+len(f.Payload)))
+	prot.WriteFrame(buf, f)
+
+	c.CombinedSequenceNumberOut.Increment()
+	return buf.Bytes(), nil
+}
+
+// Unpack ..
+func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
+	f, err := prot.ParseFrame(data)
 	if err != nil {
 		return
 	}
 
-	h = prot.Header{
-		Cookie: c.CookieOut,
-		Csn:    csnOut,
-		Dest:   dest,
-		Src:    prot.Server,
+	destType := prot.GetAddressTypeFromAddr(f.Header.Dest)
+
+	// Validate destination
+	isToServer := destType == prot.Server
+	if typeVal, typeHasVal := c.GetType(); !isToServer && !(c.Authenticated && typeHasVal && typeVal != destType) {
+		return nil, prot.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", f.Header.Dest), prot.ErrNotAllowedMessage)
 	}
+
+	// Validate source
+	if c.Id != f.Header.Src {
+		return nil, prot.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
+	}
+
+	if destType != prot.Server {
+		return prot.NewRawMessage(f.Header.Src, f.Header.Dest, data), nil
+	}
+
+	// Validate cookie
+	if err = c.checkCookieIn(f.Header.Cookie); err != nil {
+		return
+	}
+
+	// validate and increase csn
+	csn, err := ParseCombinedSequenceNumber(f.Header.Csn)
+	if err != nil {
+		return nil, err
+	}
+	csnIn := c.CombinedSequenceNumberIn
+	if csnIn != nil {
+		if csnIn.HasErrOverflowSentinel() {
+			return nil, prot.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
+		}
+		if !csnIn.EqualsTo(csn) {
+			return nil, prot.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
+		}
+	} else if csn.GetOverflowNumber() != 0 {
+		return nil, prot.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
+	}
+
+	nonce, _ := prot.ExtractNonce(data)
+	decryptedPayload, err1 := prot.DecryptPayload(c.ClientKey, c.ServerSessionBox.Sk, nonce, f.Payload)
+	if err1 == nil {
+		f.Payload = decryptedPayload
+	}
+
+	if msg, err = prot.UnmarshalMessage(f); err != nil {
+		return
+	}
+
+	if csnIn == nil {
+		c.CombinedSequenceNumberIn = csn
+	}
+	c.CombinedSequenceNumberIn.Increment()
+	c.cookieIn = f.Header.Cookie
 	return
+}
+
+// DelFromPath ..
+func (c *Client) DelFromPath() {
+	if c.Authenticated {
+		c.Path.Del(c.Id)
+	}
 }
 
 func (c *Client) sendServerHello() (err error) {
@@ -305,6 +377,12 @@ func (c *Client) sendServerAuth() (err error) {
 	return
 }
 
+func (c *Client) sendRawData(data []byte) (err error) {
+	Sugar.Debug("Sending raw data..")
+	err = c.Server.WriteCtrl(c.conn, data)
+	return
+}
+
 func (c *Client) handleClientHello(msg *prot.ClientHelloMessage) (err error) {
 	_, hasType := c.GetType()
 	if hasType {
@@ -391,18 +469,21 @@ func (c *Client) handleRawMessage(msg *prot.RawMessage) (err error) {
 	return
 }
 
-func (c *Client) sendRawData(data []byte) (err error) {
-	Sugar.Debug("Sending raw data..")
-	err = c.Server.WriteCtrl(c.conn, data)
+func (c *Client) getHeader(dest uint8) (h prot.Header, err error) {
+	csnOut, err := c.CombinedSequenceNumberOut.AsBytes()
+	if err != nil {
+		return
+	}
+
+	h = prot.Header{
+		Cookie: c.CookieOut,
+		Csn:    csnOut,
+		Dest:   dest,
+		Src:    prot.Server,
+	}
 	return
 }
 
-// DelFromPath ..
-func (c *Client) DelFromPath() {
-	if c.Authenticated {
-		c.Path.Del(c.Id)
-	}
-}
 func getAuthenticatedResponderIds(p *Path) []prot.AddressType {
 	ids := []prot.AddressType{}
 	for kv := range p.Iter() {
@@ -424,22 +505,6 @@ func iterOnAuthenticatedResponders(p *Path, handler func(c *Client)) {
 	}
 }
 
-// Pack ..
-func (c *Client) Pack(h prot.Header, pm prot.PayloadMarshaler) ([]byte, error) {
-
-	payloadBts, _ := pm.MarshalPayload()
-	f := prot.Frame{
-		Header:  h,
-		Payload: payloadBts,
-	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, prot.HeaderSize+len(f.Payload)))
-	prot.WriteFrame(buf, f)
-
-	c.CombinedSequenceNumberOut.Increment()
-	return buf.Bytes(), nil
-}
-
 func (c *Client) checkCookieIn(cookie []byte) (err error) {
 	if c.cookieIn == nil {
 		if bytes.Equal(cookie, c.CookieOut) {
@@ -448,71 +513,7 @@ func (c *Client) checkCookieIn(cookie []byte) (err error) {
 		return nil
 	}
 	if !bytes.Equal(c.cookieIn, cookie) {
-		return errors.New("Client cookieIn is not changeable")
+		return errors.New("Client cookieIn can not change")
 	}
 	return nil
-}
-
-// Unpack ..
-func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
-	f, err := prot.ParseFrame(data)
-	if err != nil {
-		return
-	}
-
-	destType := prot.GetAddressTypeFromAddr(f.Header.Dest)
-
-	// Validate destination
-	isToServer := destType == prot.Server
-	if typeVal, typeHasVal := c.GetType(); !isToServer && !(c.Authenticated && typeHasVal && typeVal != destType) {
-		return nil, prot.NewMessageFlowError(fmt.Sprintf("Not allowed to relay messages to 0x%x", f.Header.Dest), prot.ErrNotAllowedMessage)
-	}
-
-	// Validate source
-	if c.Id != f.Header.Src {
-		return nil, prot.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
-	}
-
-	if destType != prot.Server {
-		return prot.NewRawMessage(f.Header.Src, f.Header.Dest, data), nil
-	}
-
-	// Validate cookie
-	if err = c.checkCookieIn(f.Header.Cookie); err != nil {
-		return
-	}
-
-	// validate and increase csn
-	csn, err := ParseCombinedSequenceNumber(f.Header.Csn)
-	if err != nil {
-		return nil, err
-	}
-	csnIn := c.CombinedSequenceNumberIn
-	if csnIn != nil {
-		if csnIn.HasErrOverflowSentinel() {
-			return nil, prot.NewMessageFlowError("Cannot receive any more messages, due to a sequence number counter overflow", ErrOverflowSentinel)
-		}
-		if !csnIn.EqualsTo(csn) {
-			return nil, prot.NewMessageFlowError("invalid received sequence number", ErrNotExpectedCsn)
-		}
-	} else if csn.GetOverflowNumber() != 0 {
-		return nil, prot.NewMessageFlowError("overflow number must be initialized with zero", ErrInvalidOverflowNumber)
-	}
-
-	nonce, _ := prot.ExtractNonce(data)
-	decryptedPayload, err1 := prot.DecryptPayload(c.ClientKey, c.ServerSessionBox.Sk, nonce, f.Payload)
-	if err1 == nil {
-		f.Payload = decryptedPayload
-	}
-
-	if msg, err = prot.UnmarshalMessage(f); err != nil {
-		return
-	}
-
-	if csnIn == nil {
-		c.CombinedSequenceNumberIn = csn
-	}
-	c.CombinedSequenceNumberIn.Increment()
-	c.cookieIn = f.Header.Cookie
-	return
 }
