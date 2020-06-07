@@ -56,6 +56,7 @@ type Conn struct {
 	remoteAddr net.Addr         // remote addr
 	loop       *loop            // connected loop
 	netConn    net.Conn
+	rawConn    syscall.RawConn
 	upgraded   bool // upgraded to ws protocol
 	client     *Client
 	closed     bool
@@ -77,9 +78,25 @@ func (c *Conn) Write(p []byte) (int, error) {
 	return c.netConn.Write(p)
 }
 
+func readRawConn(c syscall.RawConn, b []byte) (int, error) {
+	var operr error
+	var n int
+	err := c.Read(func(s uintptr) bool {
+		n, operr = syscall.Read(int(s), b)
+		return true
+	})
+	if err != nil {
+		return n, err
+	}
+	if operr != nil {
+		return n, operr
+	}
+	return n, nil
+}
+
 // Read ..
 func (c *Conn) Read(p []byte) (int, error) {
-	return syscall.Read(c.fd, p)
+	return readRawConn(c.rawConn, p)
 }
 
 func socketFD(conn net.Conn) int {

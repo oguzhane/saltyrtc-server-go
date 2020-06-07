@@ -238,8 +238,12 @@ func loopAccept(fd int, l *loop, ln *listener) error {
 			conn.Close()
 			return err
 		}
-
-		c := &Conn{netConn: conn, fd: nfd, loop: l}
+		tcpConn := conn.(*net.TCPConn)
+		rawConn, err := tcpConn.SyscallConn()
+		if err != nil {
+			return err
+		}
+		c := &Conn{netConn: conn, rawConn: rawConn, fd: nfd, loop: l}
 		l.fdconns[c.fd] = c
 		l.poll.AddReadWrite(c.fd)
 		atomic.AddInt32(&l.count, 1)
