@@ -53,7 +53,7 @@ func (p *Path) AddResponder(c *Client) (prot.AddressType, error) {
 			return responderID, nil
 		}
 	}
-	return prot.Server, prot.NewSlotsFullError("No free slot on path")
+	return prot.Server, prot.ErrSlotsFull
 }
 
 // Del ..

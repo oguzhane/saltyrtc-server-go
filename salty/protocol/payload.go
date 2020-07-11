@@ -66,13 +66,14 @@ func EncodePayload(payload interface{}) ([]byte, error) {
 	return b.Bytes(), err
 }
 
-// EncryptPayload ..
+// EncryptPayload encryptes payload as bytes
 func EncryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, encodedPayload []byte) ([]byte, error) {
 	var nonceArr [NonceLength]byte
 	copy(nonceArr[:], nonce[:NonceLength])
 	return box.Seal(nil, encodedPayload, &nonceArr, &clientKey, &serverSessionSk), nil
 }
 
+// SignKeys seals nonce with client and server keys to bytes
 func SignKeys(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionPk [nacl.NaclKeyBytesSize]byte, serverPermanentSk [nacl.NaclKeyBytesSize]byte, nonce []byte) []byte {
 	var nonceArr [NonceLength]byte
 	copy(nonceArr[:], nonce[:NonceLength])
@@ -92,7 +93,7 @@ type payloadUnion struct {
 	InitiatorConnected bool        `codec:"initiator_connected,omitempty"`
 	Responders         []uint16    `codec:"responders,omitempty"`
 	SignedKeys         []byte      `codec:"signed_keys,omitempty"`
-	Id                 interface{} `codec:"id,omitempty"`
+	ID                 interface{} `codec:"id,omitempty"`
 	Reason             int         `codec:"reason,omitempty"`
 }
 

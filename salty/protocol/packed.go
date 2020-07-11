@@ -8,24 +8,37 @@ import (
 )
 
 const (
-	KeyBitSize      = 256
-	KeyBytesSize    = 32
+	// KeyBitSize represents the size of a key in bits
+	KeyBitSize = 256
+	// KeyBytesSize represents the size of a key in bytes
+	KeyBytesSize = 32
+	// KeyStringLength represents the size of a key in string
 	KeyStringLength = 64
-	PathLength      = KeyStringLength
+	// PathLength is length of a path in string
+	PathLength = KeyStringLength
 )
 
 const (
-	DataLengthMin         = 25
-	NonceLength           = 24
-	CookieLength          = 16
-	SourceLength          = 1
-	SourceUpperBound      = CookieLength + SourceLength
-	DestinationLength     = 1
+	// DataLengthMin minimum length of data (nonce + payload)
+	DataLengthMin = 25
+	// NonceLength is length of nonce in bytes
+	NonceLength = 24
+	// CookieLength is length of cookie in bytes
+	CookieLength = 16
+	// SourceLength is length of source client in bytes
+	SourceLength = 1
+	// SourceUpperBound is CookieLength + SourceLength
+	SourceUpperBound = CookieLength + SourceLength
+	// DestinationLength is length of destination client
+	DestinationLength = 1
+	// DestinationUpperBound is SourceUpperBound + DestinationLength
 	DestinationUpperBound = SourceUpperBound + DestinationLength
-	CsnUpperBound         = NonceLength
+	// CsnUpperBound is upper bound of combined sequence number
+	CsnUpperBound = NonceLength
 )
 
 const (
+	// SubprotocolSaltyRTCv1 default protocol identifier: "v1.saltyrtc.org"
 	SubprotocolSaltyRTCv1 = "v1.saltyrtc.org"
 )
 
@@ -168,7 +181,7 @@ func ParseFrame(b []byte) (f Frame, err error) {
 		return
 	}
 
-	f.Payload = b[HeaderSize:len(b)]
+	f.Payload = b[HeaderSize:]
 	return
 }
 
@@ -253,7 +266,7 @@ func parseNewInitiator(p payloadUnion, f Frame) (*NewInitiatorMessage, error) {
 }
 
 func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
-	id, err := ParseAddressId(p.Id)
+	id, err := ParseAddressID(p.ID)
 	if err != nil {
 		return nil, NewPayloadFieldError(NewResponder, "id", err)
 	}
@@ -261,7 +274,7 @@ func parseNewResponder(p payloadUnion, f Frame) (*NewResponderMessage, error) {
 }
 
 func parseDropResponder(p payloadUnion, f Frame) (*DropResponderMessage, error) {
-	id, err := ParseAddressId(p.Id)
+	id, err := ParseAddressID(p.ID)
 	if err != nil || id <= Initiator {
 		return nil, NewPayloadFieldError(DropResponder, "id", err)
 	}

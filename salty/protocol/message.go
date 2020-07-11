@@ -8,15 +8,24 @@ import (
 type MessageType = string
 
 const (
-	ServerHello   MessageType = "server-hello"
-	ClientHello   MessageType = "client-hello"
-	ClientAuth    MessageType = "client-auth"
-	ServerAuth    MessageType = "server-auth"
-	NewResponder  MessageType = "new-responder"
-	NewInitiator  MessageType = "new-initiator"
+	// ServerHello ..
+	ServerHello MessageType = "server-hello"
+	// ClientHello ..
+	ClientHello MessageType = "client-hello"
+	// ClientAuth ..
+	ClientAuth MessageType = "client-auth"
+	// ServerAuth ..
+	ServerAuth MessageType = "server-auth"
+	// NewResponder ..
+	NewResponder MessageType = "new-responder"
+	// NewInitiator ..
+	NewInitiator MessageType = "new-initiator"
+	// DropResponder ..
 	DropResponder MessageType = "drop-responder"
-	SendError     MessageType = "send-error"
-	Disconnected  MessageType = "disconnected"
+	// SendError ..
+	SendError MessageType = "send-error"
+	// Disconnected ..
+	Disconnected MessageType = "disconnected"
 )
 
 // BaseMessage //

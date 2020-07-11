@@ -81,8 +81,8 @@ func ParseYourKey(yourKey interface{}) ([KeyBytesSize]byte, error) {
 	return nacl.CreateBoxPkFromBytes(yourKeyBytes)
 }
 
-// IsValidAddressId ..
-func IsValidAddressId(id interface{}) bool {
+// IsValidAddressID checks whether id is a valid address
+func IsValidAddressID(id interface{}) bool {
 	if id == nil {
 		return false
 	}
@@ -90,24 +90,24 @@ func IsValidAddressId(id interface{}) bool {
 	return ok
 }
 
-// ParseAddressId ..
-func ParseAddressId(id interface{}) (AddressType, error) {
-	if !IsValidAddressId(id) {
+// ParseAddressID parses id to address of type
+func ParseAddressID(id interface{}) (AddressType, error) {
+	if !IsValidAddressID(id) {
 		return 0, errors.New("Invalid address id")
 	}
 	v, _ := id.(AddressType)
 	return v, nil
 }
 
-// IsValidResponderAddressId ..
-func IsValidResponderAddressId(id interface{}) bool {
-	v, err := ParseAddressId(id)
+// IsValidResponderAddressID returns true if id is a valid responder address
+func IsValidResponderAddressID(id interface{}) bool {
+	v, err := ParseAddressID(id)
 	return err == nil && IsValidResponderAddressType(v)
 }
 
-// ParseResponderAddressId ..
-func ParseResponderAddressId(id interface{}) (AddressType, error) {
-	if !IsValidResponderAddressId(id) {
+// ParseResponderAddressID parses id as address of type
+func ParseResponderAddressID(id interface{}) (AddressType, error) {
+	if !IsValidResponderAddressID(id) {
 		return 0, errors.New("Invalid responder address id")
 	}
 	v, _ := id.(AddressType)
