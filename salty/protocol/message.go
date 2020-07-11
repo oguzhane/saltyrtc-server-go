@@ -4,6 +4,7 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
+// MessageType is used to represent type of a message
 type MessageType = string
 
 const (
@@ -339,7 +340,7 @@ func (m *NewInitiatorMessage) MarshalPayload() ([]byte, error) {
 // NewResponderMessage //
 type NewResponderMessage struct {
 	BaseMessage
-	responderId AddressType
+	responderID AddressType
 
 	EncodingOpts struct {
 		ClientKey       [KeyBytesSize]byte
@@ -349,13 +350,13 @@ type NewResponderMessage struct {
 }
 
 // NewNewResponderMessage ..
-func NewNewResponderMessage(src AddressType, dest AddressType, responderId AddressType) *NewResponderMessage {
+func NewNewResponderMessage(src AddressType, dest AddressType, responderID AddressType) *NewResponderMessage {
 	msg := &NewResponderMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
 			Dest: dest,
 		},
-		responderId: responderId,
+		responderID: responderID,
 	}
 	return msg
 }
@@ -364,10 +365,10 @@ func NewNewResponderMessage(src AddressType, dest AddressType, responderId Addre
 func (m *NewResponderMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
 		Type MessageType `codec:"type"`
-		Id   uint8       `codec:"id"`
+		ID   uint8       `codec:"id"`
 	}{
 		Type: NewResponder,
-		Id:   m.responderId,
+		ID:   m.responderID,
 	}
 
 	encodedPayload, err := EncodePayload(payload)
@@ -384,7 +385,7 @@ func (m *NewResponderMessage) MarshalPayload() ([]byte, error) {
 // DropResponderMessage //
 type DropResponderMessage struct {
 	BaseMessage
-	ResponderId AddressType
+	ResponderID AddressType
 	Reason      int
 
 	EncodingOpts struct {
@@ -395,31 +396,32 @@ type DropResponderMessage struct {
 }
 
 // NewDropResponderMessage ..
-func NewDropResponderMessage(src AddressType, dest AddressType, responderId AddressType) *DropResponderMessage {
-	return NewDropResponderMessageWithReason(src, dest, responderId, CloseCodeDropByInitiator)
+func NewDropResponderMessage(src AddressType, dest AddressType, responderID AddressType) *DropResponderMessage {
+	return NewDropResponderMessageWithReason(src, dest, responderID, CloseCodeDropByInitiator)
 }
 
 // NewDropResponderMessageWithReason ..
-func NewDropResponderMessageWithReason(src AddressType, dest AddressType, responderId AddressType, reason int) *DropResponderMessage {
+func NewDropResponderMessageWithReason(src AddressType, dest AddressType, responderID AddressType, reason int) *DropResponderMessage {
 	msg := &DropResponderMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
 			Dest: dest,
 		},
-		ResponderId: responderId,
+		ResponderID: responderID,
 		Reason:      reason,
 	}
 	return msg
 }
 
+// MarshalPayload returns the bytes encoding of m
 func (m *DropResponderMessage) MarshalPayload() ([]byte, error) {
 	payload := struct {
 		Type   MessageType `codec:"type"`
-		Id     uint8       `codec:"id"`
+		ID     uint8       `codec:"id"`
 		Reason int         `codec:"reason"`
 	}{
 		Type:   DropResponder,
-		Id:     m.ResponderId,
+		ID:     m.ResponderID,
 		Reason: m.Reason,
 	}
 
@@ -437,7 +439,7 @@ func (m *DropResponderMessage) MarshalPayload() ([]byte, error) {
 // DisconnectedMessage //
 type DisconnectedMessage struct {
 	BaseMessage
-	clientId []byte
+	clientID AddressType
 
 	EncodingOpts struct {
 		ClientKey       [KeyBytesSize]byte
@@ -447,13 +449,13 @@ type DisconnectedMessage struct {
 }
 
 // NewDisconnectedMessage ..
-func NewDisconnectedMessage(src AddressType, dest AddressType, clientId []byte) *DisconnectedMessage {
+func NewDisconnectedMessage(src AddressType, dest AddressType, clientID AddressType) *DisconnectedMessage {
 	msg := &DisconnectedMessage{
 		BaseMessage: BaseMessage{
 			Src:  src,
 			Dest: dest,
 		},
-		clientId: clientId,
+		clientID: clientID,
 	}
 	return msg
 }
@@ -463,10 +465,10 @@ func (m *DisconnectedMessage) MarshalPayload() ([]byte, error) {
 
 	payload := struct {
 		Type MessageType `codec:"type"`
-		Id   []byte      `codec:"id"`
+		ID   uint8       `codec:"id"`
 	}{
 		Type: Disconnected,
-		Id:   m.clientId,
+		ID:   m.clientID,
 	}
 
 	encodedPayload, err := EncodePayload(payload)

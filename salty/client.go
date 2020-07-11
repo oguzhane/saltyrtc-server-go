@@ -37,7 +37,7 @@ type Client struct {
 	CombinedSequenceNumberIn  *CombinedSequenceNumber
 
 	Authenticated bool
-	Id            prot.AddressType
+	ID            prot.AddressType
 	typeValue     prot.AddressType
 	typeHasValue  bool
 	Path          *Path
@@ -154,8 +154,8 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 	}
 
 	// Validate source
-	if c.Id != f.Header.Src {
-		return nil, prot.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.Id, f.Header.Src), prot.ErrNotMatchedIdentities)
+	if c.ID != f.Header.Src {
+		return nil, prot.NewMessageFlowError(fmt.Sprintf("Identities do not match, expected 0x%x, got 0x%x", c.ID, f.Header.Src), prot.ErrNotMatchedIdentities)
 	}
 
 	if destType != prot.Server {
@@ -205,12 +205,12 @@ func (c *Client) Unpack(data []byte) (msg interface{}, err error) {
 // DelFromPath ..
 func (c *Client) DelFromPath() {
 	if c.Authenticated {
-		c.Path.Del(c.Id)
+		c.Path.Del(c.ID)
 	}
 }
 
 func (c *Client) sendServerHello() (err error) {
-	msg := prot.NewServerHelloMessage(prot.Server, c.Id, c.ServerSessionBox.Pk[:])
+	msg := prot.NewServerHelloMessage(prot.Server, c.ID, c.ServerSessionBox.Pk[:])
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -233,7 +233,7 @@ func (c *Client) sendServerHello() (err error) {
 }
 
 func (c *Client) sendNewInitiator() (err error) {
-	msg := prot.NewNewInitiatorMessage(prot.Server, c.Id)
+	msg := prot.NewNewInitiatorMessage(prot.Server, c.ID)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -257,7 +257,7 @@ func (c *Client) sendNewInitiator() (err error) {
 }
 
 func (c *Client) sendNewResponder(responderID uint8) (err error) {
-	msg := prot.NewNewResponderMessage(prot.Server, c.Id, responderID)
+	msg := prot.NewNewResponderMessage(prot.Server, c.ID, responderID)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
 		return
@@ -318,7 +318,7 @@ func (c *Client) sendServerAuth() (err error) {
 		}
 
 		c.Path.SetInitiator(c)
-		c.Id = prot.Initiator
+		c.ID = prot.Initiator
 		c.Authenticated = true
 		c.State = ServerAuth
 
@@ -366,13 +366,13 @@ func (c *Client) sendServerAuth() (err error) {
 	if err = c.Server.WriteCtrl(c.conn, data); err != nil {
 		return
 	}
-	c.Id = slotID
+	c.ID = slotID
 	c.Authenticated = true
 	c.State = ServerAuth
 	Sugar.Debug("New authenticated Responder: ", slotID)
 
 	if initiator, ok := c.Path.GetInitiator(); ok && initiator.Authenticated {
-		initiator.sendNewResponder(c.Id)
+		initiator.sendNewResponder(c.ID)
 	}
 	return
 }
@@ -444,19 +444,19 @@ func (c *Client) handleDropResponder(msg *prot.DropResponderMessage) (err error)
 		err = errors.New("Client is not authenticated, nor initiator")
 		return
 	}
-	responder, ok := c.Path.Get(msg.ResponderId)
+	responder, ok := c.Path.Get(msg.ResponderID)
 	if !ok {
 		err = errors.New("Responder does not exist on the path")
 		return
 	}
-	c.Path.Del(msg.ResponderId)
+	c.Path.Del(msg.ResponderID)
 	closeFrame := getCloseFrameByCode(msg.Reason, CloseFrameDropByInitiator)
 	responder.conn.Close(closeFrame)
 	return
 }
 
 func (c *Client) handleRawMessage(msg *prot.RawMessage) (err error) {
-	if !c.Authenticated || c.Id != msg.Src || msg.Src == msg.Dest {
+	if !c.Authenticated || c.ID != msg.Src || msg.Src == msg.Dest {
 		err = errors.New("Client is not authenticated nor valid raw message")
 		return
 	}
