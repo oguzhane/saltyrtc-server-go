@@ -527,30 +527,16 @@ func (c *Client) checkCookieIn(cookie []byte) (err error) {
 	return nil
 }
 
-type basicEncodingOpts struct {
-	ClientKey       [32]byte
-	ServerSessionSk [32]byte
-	Nonce           []byte
-}
-
-func (c *Client) basicEncodingOpts(h prot.Header) basicEncodingOpts {
-	return basicEncodingOpts{
+func (c *Client) basicEncodingOpts(h prot.Header) prot.BasicEncodingOpts {
+	return prot.BasicEncodingOpts{
 		ClientKey:       c.ClientKey,
 		ServerSessionSk: c.ServerSessionBox.Sk,
 		Nonce:           prot.MakeNonce(h),
 	}
 }
 
-type serverAuthEncodingOpts struct {
-	ServerPermanentSk [nacl.NaclKeyBytesSize]byte
-	ClientKey         [nacl.NaclKeyBytesSize]byte
-	ServerSessionSk   [nacl.NaclKeyBytesSize]byte
-	ServerSessionPk   [nacl.NaclKeyBytesSize]byte
-	Nonce             []byte
-}
-
-func (c *Client) serverAuthEncodingOpts(h prot.Header) serverAuthEncodingOpts {
-	return serverAuthEncodingOpts{
+func (c *Client) serverAuthEncodingOpts(h prot.Header) prot.ServerAuthEncodingOpts {
+	return prot.ServerAuthEncodingOpts{
 		ClientKey:         c.ClientKey,
 		ServerSessionSk:   c.ServerSessionBox.Sk,
 		Nonce:             prot.MakeNonce(h),

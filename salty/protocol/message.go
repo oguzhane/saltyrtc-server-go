@@ -28,6 +28,20 @@ const (
 	Disconnected MessageType = "disconnected"
 )
 
+type BasicEncodingOpts struct {
+	ClientKey       [32]byte
+	ServerSessionSk [32]byte
+	Nonce           []byte
+}
+
+type ServerAuthEncodingOpts struct {
+	ServerPermanentSk [nacl.NaclKeyBytesSize]byte
+	ClientKey         [nacl.NaclKeyBytesSize]byte
+	ServerSessionSk   [nacl.NaclKeyBytesSize]byte
+	ServerSessionPk   [nacl.NaclKeyBytesSize]byte
+	Nonce             []byte
+}
+
 // BaseMessage //
 type BaseMessage struct {
 	Src  AddressType
@@ -130,11 +144,7 @@ type ClientAuthMessage struct {
 	PingInterval uint32
 	ServerKey    [KeyBytesSize]byte
 
-	EncodingOpts struct {
-		ClientKey       [KeyBytesSize]byte
-		ServerSessionSk [KeyBytesSize]byte
-		Nonce           []byte
-	}
+	EncodingOpts BasicEncodingOpts
 }
 
 // NewClientAuthMessage ..
@@ -189,13 +199,7 @@ type ServerAuthMessage struct {
 	responderIds       []AddressType
 	towardsInitiator   bool
 
-	EncodingOpts struct {
-		ServerPermanentSk [nacl.NaclKeyBytesSize]byte
-		ClientKey         [nacl.NaclKeyBytesSize]byte
-		ServerSessionSk   [nacl.NaclKeyBytesSize]byte
-		ServerSessionPk   [nacl.NaclKeyBytesSize]byte
-		Nonce             []byte
-	}
+	EncodingOpts ServerAuthEncodingOpts
 }
 
 // NewServerAuthMessageForInitiator ..
@@ -308,11 +312,7 @@ type NewInitiatorMessage struct {
 	clientKey       [KeyBytesSize]byte
 	serverSessionSk [KeyBytesSize]byte
 
-	EncodingOpts struct {
-		ClientKey       [KeyBytesSize]byte
-		ServerSessionSk [KeyBytesSize]byte
-		Nonce           []byte
-	}
+	EncodingOpts BasicEncodingOpts
 }
 
 // NewNewInitiatorMessage ..
@@ -351,11 +351,7 @@ type NewResponderMessage struct {
 	BaseMessage
 	responderID AddressType
 
-	EncodingOpts struct {
-		ClientKey       [KeyBytesSize]byte
-		ServerSessionSk [KeyBytesSize]byte
-		Nonce           []byte
-	}
+	EncodingOpts BasicEncodingOpts
 }
 
 // NewNewResponderMessage ..
@@ -397,11 +393,7 @@ type DropResponderMessage struct {
 	ResponderID AddressType
 	Reason      int
 
-	EncodingOpts struct {
-		ClientKey       [KeyBytesSize]byte
-		ServerSessionSk [KeyBytesSize]byte
-		Nonce           []byte
-	}
+	EncodingOpts BasicEncodingOpts
 }
 
 // NewDropResponderMessage ..
@@ -450,11 +442,7 @@ type DisconnectedMessage struct {
 	BaseMessage
 	clientID AddressType
 
-	EncodingOpts struct {
-		ClientKey       [KeyBytesSize]byte
-		ServerSessionSk [KeyBytesSize]byte
-		Nonce           []byte
-	}
+	EncodingOpts BasicEncodingOpts
 }
 
 // NewDisconnectedMessage ..
