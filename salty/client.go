@@ -209,7 +209,31 @@ func (c *Client) DelFromPath() {
 	}
 }
 
+// Disconnected ..
+func (c *Client) Disconnected() (err error) {
+	if !c.Authenticated {
+		return errors.New("Client is not authenticated")
+	}
+	if c.typeValue == prot.Initiator {
+		iterOnAuthenticatedResponders(c.Path, func(r *Client) {
+			// TODO(oergin): consider to send 'disconnected' message by a new worker
+			// todo: aggregate errors
+			r.sendDisconnected(prot.Initiator)
+		})
+	} else {
+		initiator, ok := c.Path.GetInitiator()
+		if !ok {
+			return errors.New("initiator is not present")
+		}
+		if errInner := initiator.sendDisconnected(c.ID); errInner != nil {
+			return fmt.Errorf("error occurred when sending disconnected message to initiator: %w", errInner)
+		}
+	}
+	return nil
+}
+
 func (c *Client) sendServerHello() (err error) {
+	Sugar.Debug("sending server-hello")
 	msg := prot.NewServerHelloMessage(prot.Server, c.ID, c.ServerSessionBox.Pk[:])
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
@@ -233,6 +257,7 @@ func (c *Client) sendServerHello() (err error) {
 }
 
 func (c *Client) sendNewInitiator() (err error) {
+	Sugar.Debug("sending new-initiator")
 	msg := prot.NewNewInitiatorMessage(prot.Server, c.ID)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
@@ -257,6 +282,7 @@ func (c *Client) sendNewInitiator() (err error) {
 }
 
 func (c *Client) sendNewResponder(responderID uint8) (err error) {
+	Sugar.Debug("sending new-responder")
 	msg := prot.NewNewResponderMessage(prot.Server, c.ID, responderID)
 	h, err := c.getHeader(msg.Dest)
 	if err != nil {
@@ -281,7 +307,34 @@ func (c *Client) sendNewResponder(responderID uint8) (err error) {
 	return
 }
 
+func (c *Client) sendDisconnected(id uint8) (err error) {
+	Sugar.Debug("sending disconnected")
+	msg := prot.NewDisconnectedMessage(prot.Server, c.ID, id)
+	h, err := c.getHeader(msg.Dest)
+	if err != nil {
+		return
+	}
+	msg.EncodingOpts = struct {
+		ClientKey       [32]byte
+		ServerSessionSk [32]byte
+		Nonce           []byte
+	}{
+		ClientKey:       c.ClientKey,
+		ServerSessionSk: c.ServerSessionBox.Sk,
+		Nonce:           prot.MakeNonce(h),
+	}
+
+	data, err := c.Pack(h, msg)
+	if err != nil {
+		return
+	}
+
+	err = c.Server.WriteCtrl(c.conn, data)
+	return
+}
+
 func (c *Client) sendServerAuth() (err error) {
+	Sugar.Debug("sending server-auth")
 	var msg *prot.ServerAuthMessage
 	if clientType, _ := c.GetType(); clientType == prot.Initiator {
 
@@ -378,12 +431,13 @@ func (c *Client) sendServerAuth() (err error) {
 }
 
 func (c *Client) sendRawData(data []byte) (err error) {
-	Sugar.Debug("Sending raw data..")
+	Sugar.Debug("sending raw-data")
 	err = c.Server.WriteCtrl(c.conn, data)
 	return
 }
 
 func (c *Client) handleClientHello(msg *prot.ClientHelloMessage) (err error) {
+	Sugar.Debug("handling client-hello")
 	_, hasType := c.GetType()
 	if hasType {
 		err = errors.New("client already has type")
@@ -400,6 +454,7 @@ func (c *Client) handleClientHello(msg *prot.ClientHelloMessage) (err error) {
 }
 
 func (c *Client) handleClientAuth(msg *prot.ClientAuthMessage) (err error) {
+	Sugar.Debug("handling client-auth")
 	// validate your_cookie with cookieOut
 	if !bytes.Equal(msg.ServerCookie, c.CookieOut) {
 		err = errors.New("Cookies do not match")
@@ -440,6 +495,7 @@ func (c *Client) handleClientAuth(msg *prot.ClientAuthMessage) (err error) {
 }
 
 func (c *Client) handleDropResponder(msg *prot.DropResponderMessage) (err error) {
+	Sugar.Debug("handling drop-responder")
 	if !c.Authenticated || c.typeValue != prot.Initiator {
 		err = errors.New("Client is not authenticated, nor initiator")
 		return
@@ -456,6 +512,7 @@ func (c *Client) handleDropResponder(msg *prot.DropResponderMessage) (err error)
 }
 
 func (c *Client) handleRawMessage(msg *prot.RawMessage) (err error) {
+	Sugar.Debug("handling raw-message")
 	if !c.Authenticated || c.ID != msg.Src || msg.Src == msg.Dest {
 		err = errors.New("Client is not authenticated nor valid raw message")
 		return
