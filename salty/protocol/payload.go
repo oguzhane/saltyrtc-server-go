@@ -29,7 +29,7 @@ var (
 	ErrCantDecryptPayload = errors.New("cant decrypt payload")
 )
 
-// DecodePayload ..
+// DecodePayload decodes encodedPayload into v
 func DecodePayload(encodedPayload []byte, v interface{}) error {
 	h := new(codec.MsgpackHandle) // todo: allocate on stack??
 	h.WriteExt = true
@@ -39,7 +39,7 @@ func DecodePayload(encodedPayload []byte, v interface{}) error {
 	return err
 }
 
-// DecryptPayload ..
+// DecryptPayload returns decrypted data in bytes
 func DecryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl.NaclKeyBytesSize]byte, nonce []byte, data []byte) ([]byte, error) {
 	var nonceArr [NonceLength]byte
 	copy(nonceArr[:], nonce[:NonceLength])
@@ -50,7 +50,7 @@ func DecryptPayload(clientKey [nacl.NaclKeyBytesSize]byte, serverSessionSk [nacl
 	return decryptedData, nil
 }
 
-// EncodePayload ..
+// EncodePayload returns encoded of payload in bytes
 func EncodePayload(payload interface{}) ([]byte, error) {
 	b := new(bytes.Buffer)
 	bw := bufio.NewWriter(b)
@@ -97,7 +97,7 @@ type payloadUnion struct {
 	Reason             int         `codec:"reason,omitempty"`
 }
 
-// PayloadFieldError ..
+// PayloadFieldError represents an error correlated to a particular field
 type PayloadFieldError struct {
 	Type  string
 	Field string

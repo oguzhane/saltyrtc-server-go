@@ -43,22 +43,22 @@ const (
 )
 
 const (
-	// HeaderSize ..
+	// HeaderSize is size of header
 	HeaderSize = 24
 )
 
 var (
-	// ErrHeaderLengthUnexpected ..
+	// ErrHeaderLengthUnexpected occurs when header does not match with expected length
 	ErrHeaderLengthUnexpected = fmt.Errorf("header error: unexpected header length bytes")
 )
 
-// Frame ..
+// Frame represents combination of header and payload
 type Frame struct {
 	Header  Header
 	Payload []byte
 }
 
-// Header ..
+// Header represents fields in header of a frame
 type Header struct {
 	Cookie []byte // 16 byte
 	Csn    []byte // 2+4 byte
@@ -153,7 +153,7 @@ func ParseHeader(b []byte) (h Header, err error) {
 	return
 }
 
-// ExtractNonce ..
+// ExtractNonce extracts nonce from b
 func ExtractNonce(b []byte) (n []byte, err error) {
 	if len(b) < HeaderSize {
 		err = ErrHeaderLengthUnexpected
@@ -164,7 +164,7 @@ func ExtractNonce(b []byte) (n []byte, err error) {
 	return
 }
 
-// MakeNonce ..
+// MakeNonce makes bytes of nonce from h
 func MakeNonce(h Header) (bts []byte) {
 	bts = make([]byte, HeaderSize)
 	copy((bts[:16]), h.Cookie)
