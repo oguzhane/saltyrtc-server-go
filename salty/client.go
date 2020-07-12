@@ -264,15 +264,7 @@ func (c *Client) sendNewInitiator() (err error) {
 		return
 	}
 
-	msg.EncodingOpts = struct {
-		ClientKey       [32]byte
-		ServerSessionSk [32]byte
-		Nonce           []byte
-	}{
-		ClientKey:       c.ClientKey,
-		ServerSessionSk: c.ServerSessionBox.Sk,
-		Nonce:           prot.MakeNonce(h),
-	}
+	msg.EncodingOpts = c.basicEncodingOpts(h)
 	data, err := c.Pack(h, msg)
 	if err != nil {
 		return
@@ -288,15 +280,7 @@ func (c *Client) sendNewResponder(responderID uint8) (err error) {
 	if err != nil {
 		return
 	}
-	msg.EncodingOpts = struct {
-		ClientKey       [32]byte
-		ServerSessionSk [32]byte
-		Nonce           []byte
-	}{
-		ClientKey:       c.ClientKey,
-		ServerSessionSk: c.ServerSessionBox.Sk,
-		Nonce:           prot.MakeNonce(h),
-	}
+	msg.EncodingOpts = c.basicEncodingOpts(h)
 
 	data, err := c.Pack(h, msg)
 	if err != nil {
@@ -314,15 +298,7 @@ func (c *Client) sendDisconnected(id uint8) (err error) {
 	if err != nil {
 		return
 	}
-	msg.EncodingOpts = struct {
-		ClientKey       [32]byte
-		ServerSessionSk [32]byte
-		Nonce           []byte
-	}{
-		ClientKey:       c.ClientKey,
-		ServerSessionSk: c.ServerSessionBox.Sk,
-		Nonce:           prot.MakeNonce(h),
-	}
+	msg.EncodingOpts = c.basicEncodingOpts(h)
 
 	data, err := c.Pack(h, msg)
 	if err != nil {
@@ -344,19 +320,7 @@ func (c *Client) sendServerAuth() (err error) {
 			err = err1
 			return
 		}
-		msg.EncodingOpts = struct {
-			ServerPermanentSk [32]byte
-			ClientKey         [32]byte
-			ServerSessionSk   [32]byte
-			ServerSessionPk   [32]byte
-			Nonce             []byte
-		}{
-			ServerPermanentSk: c.ServerPermanentBox.Sk,
-			ClientKey:         c.ClientKey,
-			ServerSessionSk:   c.ServerSessionBox.Sk,
-			ServerSessionPk:   c.ServerSessionBox.Pk,
-			Nonce:             prot.MakeNonce(h),
-		}
+		msg.EncodingOpts = c.serverAuthEncodingOpts(h)
 
 		data, err1 := c.Pack(h, msg)
 		if err1 != nil {
@@ -397,19 +361,7 @@ func (c *Client) sendServerAuth() (err error) {
 		err = err1
 		return
 	}
-	msg.EncodingOpts = struct {
-		ServerPermanentSk [32]byte
-		ClientKey         [32]byte
-		ServerSessionSk   [32]byte
-		ServerSessionPk   [32]byte
-		Nonce             []byte
-	}{
-		ServerPermanentSk: c.ServerPermanentBox.Sk,
-		ClientKey:         c.ClientKey,
-		ServerSessionSk:   c.ServerSessionBox.Sk,
-		ServerSessionPk:   c.ServerSessionBox.Pk,
-		Nonce:             prot.MakeNonce(h),
-	}
+	msg.EncodingOpts = c.serverAuthEncodingOpts(h)
 
 	data, err1 := c.Pack(h, msg)
 	if err1 != nil {
@@ -573,4 +525,36 @@ func (c *Client) checkCookieIn(cookie []byte) (err error) {
 		return errors.New("Client cookieIn can not change")
 	}
 	return nil
+}
+
+type basicEncodingOpts struct {
+	ClientKey       [32]byte
+	ServerSessionSk [32]byte
+	Nonce           []byte
+}
+
+func (c *Client) basicEncodingOpts(h prot.Header) basicEncodingOpts {
+	return basicEncodingOpts{
+		ClientKey:       c.ClientKey,
+		ServerSessionSk: c.ServerSessionBox.Sk,
+		Nonce:           prot.MakeNonce(h),
+	}
+}
+
+type serverAuthEncodingOpts struct {
+	ServerPermanentSk [nacl.NaclKeyBytesSize]byte
+	ClientKey         [nacl.NaclKeyBytesSize]byte
+	ServerSessionSk   [nacl.NaclKeyBytesSize]byte
+	ServerSessionPk   [nacl.NaclKeyBytesSize]byte
+	Nonce             []byte
+}
+
+func (c *Client) serverAuthEncodingOpts(h prot.Header) serverAuthEncodingOpts {
+	return serverAuthEncodingOpts{
+		ClientKey:         c.ClientKey,
+		ServerSessionSk:   c.ServerSessionBox.Sk,
+		Nonce:             prot.MakeNonce(h),
+		ServerPermanentSk: c.ServerPermanentBox.Sk,
+		ServerSessionPk:   c.ServerSessionBox.Pk,
+	}
 }
