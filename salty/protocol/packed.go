@@ -115,6 +115,7 @@ func ReadFrame(r io.Reader) (f Frame, err error) {
 		nn := 0
 		nn, err = io.ReadFull(r, bts)
 		if err == io.ErrUnexpectedEOF || nn < 512 {
+			err = nil
 			f.Payload = append(f.Payload[:], bts[:nn]...)
 			break
 		}

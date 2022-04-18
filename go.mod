@@ -9,6 +9,7 @@ require (
 	github.com/gobwas/httphead v0.0.0-20180130184737-2c6c146eadee // indirect
 	github.com/gobwas/pool v0.2.0 // indirect
 	github.com/gobwas/ws v1.0.2
+	github.com/stretchr/testify v1.7.1 // indirect
 	github.com/ugorji/go/codec v1.1.7
 	go.uber.org/atomic v1.5.1 // indirect
 	go.uber.org/multierr v1.4.0 // indirect
