@@ -204,8 +204,8 @@ type PayloadMarshaler interface {
 // UnmarshalMessage ..
 func UnmarshalMessage(f Frame) (msg interface{}, err error) {
 	payload := payloadUnion{}
-	errp := DecodePayload(f.Payload, &payload)
-	if errp != nil {
+
+	if errp := DecodePayload(f.Payload, &payload); errp != nil {
 		err = ErrCantDecodePayload
 		return
 	}
