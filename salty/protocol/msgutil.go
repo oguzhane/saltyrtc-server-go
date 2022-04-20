@@ -6,7 +6,7 @@ import (
 	"github.com/OguzhanE/saltyrtc-server-go/pkg/crypto/nacl"
 )
 
-// IsValidYourCookieBytes ..
+// IsValidYourCookieBytes checks if given pk is valid. length of pk must be equal to 16(CookieLength)
 func IsValidYourCookieBytes(pk interface{}) bool {
 	if pk == nil {
 		return false
@@ -18,7 +18,7 @@ func IsValidYourCookieBytes(pk interface{}) bool {
 	return false
 }
 
-// ParseYourCookie ..
+// ParseYourCookie parses given pk to your_cookie in bytes
 func ParseYourCookie(pk interface{}) ([]byte, error) {
 	if !IsValidYourCookieBytes(pk) {
 		return nil, errors.New("invalid your_cookie")
@@ -27,7 +27,7 @@ func ParseYourCookie(pk interface{}) ([]byte, error) {
 	return b, nil
 }
 
-// IsValidSubprotocols ..
+// IsValidSubprotocols checks if given subprotocols is valid. it must be type of []string
 func IsValidSubprotocols(subprotocols interface{}) bool {
 	if subprotocols == nil {
 		return false
@@ -36,7 +36,7 @@ func IsValidSubprotocols(subprotocols interface{}) bool {
 	return ok
 }
 
-// ParseSubprotocols ..
+// ParseSubprotocols parses given subprotocols to subprotocols as type of []string
 func ParseSubprotocols(subprotocols interface{}) ([]string, error) {
 	if !IsValidSubprotocols(subprotocols) {
 		return nil, errors.New("invalid subprotocols")
@@ -45,7 +45,7 @@ func ParseSubprotocols(subprotocols interface{}) ([]string, error) {
 	return val, nil
 }
 
-// IsValidPingInterval ..
+// IsValidPingInterval checks if given pingInterval is valid. it must be type of int and higher than 0
 func IsValidPingInterval(pingInterval interface{}) bool {
 	if pingInterval == nil {
 		return false
@@ -57,7 +57,7 @@ func IsValidPingInterval(pingInterval interface{}) bool {
 	return false
 }
 
-// ParsePingInterval ..
+// ParsePingInterval parses given pingInterval as type of int
 func ParsePingInterval(pingInterval interface{}) (int, error) {
 	if !IsValidPingInterval(pingInterval) {
 		return 0, errors.New("invalid ping_interval")
@@ -66,12 +66,12 @@ func ParsePingInterval(pingInterval interface{}) (int, error) {
 	return val, nil
 }
 
-// IsValidYourKey ..
+// IsValidYourKey checks if given yourKey is valid. It must be a valid public key of nacl box
 func IsValidYourKey(yourKey interface{}) bool {
 	return nacl.IsValidBoxPkBytes(yourKey)
 }
 
-// ParseYourKey ..
+// ParseYourKey parses yourKey. It creates nacl box public key in bytes
 func ParseYourKey(yourKey interface{}) ([KeyBytesSize]byte, error) {
 	yourKeyBytes, err := nacl.ConvertBoxPkToBytes(yourKey)
 	if err != nil {
@@ -93,7 +93,7 @@ func IsValidAddressID(id interface{}) bool {
 // ParseAddressID parses id to address of type
 func ParseAddressID(id interface{}) (AddressType, error) {
 	if !IsValidAddressID(id) {
-		return 0, errors.New("Invalid address id")
+		return 0, errors.New("invalid address id")
 	}
 	v, _ := id.(AddressType)
 	return v, nil
@@ -108,13 +108,13 @@ func IsValidResponderAddressID(id interface{}) bool {
 // ParseResponderAddressID parses id as address of type
 func ParseResponderAddressID(id interface{}) (AddressType, error) {
 	if !IsValidResponderAddressID(id) {
-		return 0, errors.New("Invalid responder address id")
+		return 0, errors.New("invalid responder address id")
 	}
 	v, _ := id.(AddressType)
 	return v, nil
 }
 
-// IsValidReasonCode ..
+// IsValidReasonCode checks if given reason valid
 func IsValidReasonCode(reason interface{}) bool {
 	if reason == nil {
 		return false
@@ -130,10 +130,10 @@ func IsValidReasonCode(reason interface{}) bool {
 	return false
 }
 
-// ParseReasonCode ..
+// ParseReasonCode parses given reason as type of int
 func ParseReasonCode(reason interface{}) (int, error) {
 	if !IsValidReasonCode(reason) {
-		return 0, errors.New("Invalid reason code")
+		return 0, errors.New("invalid reason code")
 	}
 	v, _ := reason.(int)
 	return v, nil
